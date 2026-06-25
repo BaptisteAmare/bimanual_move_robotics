@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>bimanual_manipulation</name>
+  <version>0.1.0</version>
+  <description>
+    Lightweight bimanual manipulation engine for humanoid robots. Plugs onto a
+    robot_description package, talks to FollowJointTrajectory / GripperCommand
+    controllers through configurable move groups, and exposes ROS actions for
+    single moves or multi-step sequences (approach, grasp, retreat, ...). Fast
+    custom kinematics (KDL) and collision checking (FCL) replace the heavier
+    MoveIt planning pipeline while still avoiding self and object collisions.
+  </description>
+  <maintainer email="baptiste.amare@gmail.com">Baptiste Amare</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>shape_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>urdf</depend>
+  <depend>kdl_parser</depend>
+  <depend>orocos_kdl_vendor</depend>
+  <depend>resource_retriever</depend>
+  <depend>bimanual_msgs</depend>
+  <depend>eigen</depend>
+  <depend>libfcl-dev</depend>
+  <depend>assimp</depend>
+  <depend>yaml-cpp</depend>
+
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
