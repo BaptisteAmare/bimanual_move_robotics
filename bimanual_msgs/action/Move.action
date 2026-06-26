@@ -1,0 +1,7 @@
+# Execute a single manipulation primitive.
+MotionStep step
+---
+bool success
+string message
+---
+string state

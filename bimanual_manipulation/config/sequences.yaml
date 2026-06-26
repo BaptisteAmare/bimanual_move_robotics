@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# Predefined sequences. Each is an ordered list of steps; call them by name
+# through the ~/execute_sequence action (field: sequence_name).
+#
+# Step types:
+#   named     -> go to a named pose of the group        (fields: group, named)
+#   joint     -> go to explicit joint values            (fields: group, values)
+#   cartesian -> straight-line tip move                 (fields: group, and
+#                either absolute: position [x,y,z] + orientation [x,y,z,w]
+#                or relative: true with offset [dx,dy,dz] and optional
+#                offset_in_tip_frame: true)
+#   gripper   -> actuate a gripper group   (fields: group, named OR position)
+#
+# Optional on any step: velocity_scaling, acceleration_scaling.
+# ---------------------------------------------------------------------------
+
+sequences:
+
+  # Pick an object with the left arm: approach down the tool axis, close the
+  # gripper, then retreat back up. Cartesian offsets keep the motion straight.
+  pick_left:
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+    - {type: gripper,   group: left_gripper, named: closed}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0,  0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+
+  place_left:
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+    - {type: gripper,   group: left_gripper, named: open}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0,  0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+
+  # Bring both arms to a ready pose, then open both grippers.
+  both_ready:
+    - {type: named,   group: both_arms,    named: ready}
+    - {type: gripper, group: left_gripper, named: open}
+    - {type: gripper, group: right_gripper, named: open}
+
+  stow:
+    - {type: named, group: left_arm,  named: tucked}
+    - {type: named, group: right_arm, named: tucked}

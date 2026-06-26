@@ -1,0 +1,110 @@
+# ---------------------------------------------------------------------------
+# Move group definitions.
+#
+# Everything here is meant to be edited to match YOUR robot_description:
+# link names, joint names, controller action names. Nothing is hard-coded in
+# the C++.
+#
+# A group is "Cartesian capable" as soon as both base_link and tip_link are
+# given (single kinematic chain). Groups without them (e.g. both_arms) only
+# support named / joint-space moves but may drive several controllers at once.
+# ---------------------------------------------------------------------------
+
+planning:
+  default_velocity_scaling: 0.30
+  default_acceleration_scaling: 0.30
+  # Fallbacks used only when the URDF joint has no <limit velocity="..."/>.
+  default_joint_velocity: 1.0        # rad/s
+  default_joint_acceleration: 2.0    # rad/s^2
+  execution_timeout: 30.0            # s, max wait for a controller to finish
+
+groups:
+
+  left_arm:
+    base_link: torso_link
+    tip_link: left_tool_link
+    cartesian_step: 0.005            # m between collision-checked waypoints
+    velocity_scaling: 0.30
+    acceleration_scaling: 0.30
+    joints:
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_yaw_joint
+      - left_wrist_pitch_joint
+      - left_wrist_roll_joint
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        # joints omitted -> defaults to the group joints above
+
+  right_arm:
+    base_link: torso_link
+    tip_link: right_tool_link
+    cartesian_step: 0.005
+    joints:
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_yaw_joint
+      - right_wrist_pitch_joint
+      - right_wrist_roll_joint
+    controllers:
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+
+  # Aggregate group: one joint-space command, two controllers driven together
+  # so both arms move simultaneously. No tip_link -> no Cartesian moves here.
+  both_arms:
+    joints:
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_yaw_joint
+      - left_wrist_pitch_joint
+      - left_wrist_roll_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_yaw_joint
+      - right_wrist_pitch_joint
+      - right_wrist_roll_joint
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - left_shoulder_pitch_joint
+          - left_shoulder_roll_joint
+          - left_shoulder_yaw_joint
+          - left_elbow_joint
+          - left_wrist_yaw_joint
+          - left_wrist_pitch_joint
+          - left_wrist_roll_joint
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - right_shoulder_pitch_joint
+          - right_shoulder_roll_joint
+          - right_shoulder_yaw_joint
+          - right_elbow_joint
+          - right_wrist_yaw_joint
+          - right_wrist_pitch_joint
+          - right_wrist_roll_joint
+
+  left_gripper:
+    joints:
+      - left_gripper_finger_joint
+    controllers:
+      - name: /left_gripper_controller/gripper_cmd
+        type: gripper_command
+
+  right_gripper:
+    joints:
+      - right_gripper_finger_joint
+    controllers:
+      - name: /right_gripper_controller/gripper_cmd
+        type: gripper_command

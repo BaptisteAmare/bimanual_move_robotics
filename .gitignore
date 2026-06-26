@@ -1,0 +1,13 @@
+# colcon / ament
+build/
+install/
+log/
+
+# editors
+.vscode/
+*.user
+*~
+
+# python
+__pycache__/
+*.pyc

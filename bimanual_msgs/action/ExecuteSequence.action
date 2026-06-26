@@ -1,0 +1,15 @@
+# Execute a succession of manipulation primitives, e.g. approach -> grasp ->
+# retreat. Either reference a sequence declared in sequences.yaml by name, or
+# pass the steps inline. If both are given, sequence_name is loaded first and
+# the inline steps are appended.
+string sequence_name
+MotionStep[] steps
+bool stop_on_failure true
+---
+bool success
+string message
+int32 completed_steps
+---
+int32 current_step
+int32 total_steps
+string current_action

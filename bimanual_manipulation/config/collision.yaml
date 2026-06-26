@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# Collision checking settings.
+#
+# Self-collision and collisions against world objects are checked with FCL.
+# Collisions between a link and its direct parent (and shapes on the same link)
+# are always ignored. List here any other pair that should be ignored, exactly
+# like an SRDF "disable_collisions" block (e.g. links that are permanently in
+# contact, or shapes that overlap by design).
+# ---------------------------------------------------------------------------
+
+collision:
+  enabled: true
+  padding: 0.0          # uniform inflation of robot links [m] (safety margin)
+  resolution: 0.02      # joint-space step between collision-checked waypoints [rad]
+
+  disabled_pairs:
+    - [torso_link, left_shoulder_link]
+    - [torso_link, right_shoulder_link]
+    - [left_wrist_link, left_gripper_link]
+    - [right_wrist_link, right_gripper_link]
+    # - [base_link, torso_link]

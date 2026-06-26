@@ -1,0 +1,25 @@
+# Add, remove or (de)attach a collision object in the planning world.
+uint8 ADD=0
+uint8 REMOVE=1
+uint8 ATTACH=2     # attach an existing (or new) object to a robot link
+uint8 DETACH=3     # detach an object back into the world
+uint8 CLEAR=4      # remove every world object
+
+uint8 operation
+
+# Unique identifier of the object (ignored for CLEAR).
+string id
+
+# Geometry (used for ADD / ATTACH when the object does not exist yet).
+# Supported types: BOX, SPHERE, CYLINDER (see shape_msgs/SolidPrimitive).
+shape_msgs/SolidPrimitive primitive
+
+# Object pose. header.frame_id selects the reference frame; an empty frame_id
+# defaults to the planning frame.
+geometry_msgs/PoseStamped pose
+
+# Link to attach the object to (ATTACH only).
+string attach_link
+---
+bool success
+string message

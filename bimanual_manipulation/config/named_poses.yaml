@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Named poses (joint-space targets). Values are listed in the same order as the
+# group's joints in move_groups.yaml.
+#
+# For gripper groups, the first value is used as the gripper command position.
+# ---------------------------------------------------------------------------
+
+named_poses:
+
+  left_arm:
+    home:  [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+    ready: [0.3,  0.2,  0.0, -1.2,  0.0,  0.6,  0.0]
+    tucked: [0.0, 1.4,  0.0, -2.4,  0.0,  0.0,  0.0]
+
+  right_arm:
+    home:  [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+    ready: [0.3, -0.2,  0.0, -1.2,  0.0,  0.6,  0.0]
+    tucked: [0.0, -1.4, 0.0, -2.4,  0.0,  0.0,  0.0]
+
+  both_arms:
+    home:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ready: [0.3, 0.2, 0.0, -1.2, 0.0, 0.6, 0.0,
+            0.3, -0.2, 0.0, -1.2, 0.0, 0.6, 0.0]
+
+  left_gripper:
+    open:   [0.04]
+    closed: [0.0]
+
+  right_gripper:
+    open:   [0.04]
+    closed: [0.0]
