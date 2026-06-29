@@ -49,6 +49,16 @@ public:
   bool removeObject(const std::string & id);
   void clearObjects();
 
+  // Snapshot of the current world objects, for visualization.
+  struct ObjectInfo
+  {
+    std::string id;
+    shape_msgs::msg::SolidPrimitive primitive;
+    Eigen::Isometry3d pose;        // root frame, or link frame if attached
+    std::string attached_link;     // empty when free in the world
+  };
+  std::vector<ObjectInfo> objects() const;
+
   const std::string & rootFrame() const {return root_frame_;}
   bool enabled() const {return settings_.enabled;}
 
@@ -78,6 +88,8 @@ private:
     std::shared_ptr<fcl::CollisionObjectd> obj;
     Eigen::Isometry3d pose;          // in root frame (or link frame if attached)
     int attached_node = -1;          // -1 when free in the world
+    shape_msgs::msg::SolidPrimitive primitive;  // kept for visualization
+    std::string attached_link;
   };
 
   std::shared_ptr<fcl::CollisionGeometryd> makeGeometry(

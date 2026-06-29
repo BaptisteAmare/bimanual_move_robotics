@@ -1,7 +1,17 @@
 #include "bimanual_manipulation/kinematics.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <random>
+
+namespace
+{
+// Per Cartesian waypoint, reject IK solutions that jump further than this from
+// the seed (the previous waypoint): they would break the straight-line
+// continuity (e.g. an elbow flip) and are unsafe to execute.
+constexpr double kMaxJointJump = 0.6;  // rad
+}  // namespace
 
 namespace bimanual_manipulation
 {
@@ -59,7 +69,7 @@ bool GroupKinematics::init(
   }
 
   fk_ = std::make_shared<KDL::ChainFkSolverPos_recursive>(chain_);
-  ik_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(chain_, 1e-5, 200);
+  ik_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(chain_, 1e-5, 500);
   return true;
 }
 
@@ -89,25 +99,56 @@ bool GroupKinematics::ik(
     return false;
   }
   const unsigned int n = chain_.getNrOfJoints();
-  KDL::JntArray q_init(n);
-  for (unsigned int i = 0; i < n; ++i) {
-    q_init(i) = seed[chain_to_group_[i]];
-  }
-  KDL::JntArray q_out(n);
-  if (ik_->CartToJnt(q_init, eigenToKdl(goal), q_out) < 0) {
-    return false;
+  const KDL::Frame goal_kdl = eigenToKdl(goal);
+
+  // Attempt a single IK solve from a given start configuration. Accepts the
+  // result only if it respects the joint limits and stays close to the seed
+  // (continuity of the Cartesian path).
+  auto attempt = [&](const std::vector<double> & start, std::vector<double> & out) -> bool {
+      KDL::JntArray q_init(n);
+      for (unsigned int i = 0; i < n; ++i) {
+        q_init(i) = start[chain_to_group_[i]];
+      }
+      KDL::JntArray q_out(n);
+      if (ik_->CartToJnt(q_init, goal_kdl, q_out) < 0) {
+        return false;
+      }
+      out = seed;  // preserve any group joint that is not part of the chain
+      for (unsigned int i = 0; i < n; ++i) {
+        const int gi = chain_to_group_[i];
+        if (q_out(i) < limits_[i].first - 1e-6 || q_out(i) > limits_[i].second + 1e-6) {
+          return false;
+        }
+        if (std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
+          return false;  // discontinuous jump w.r.t. the previous waypoint
+        }
+        out[gi] = q_out(i);
+      }
+      return true;
+    };
+
+  // 1) natural continuation from the seed.
+  if (attempt(seed, q)) {
+    return true;
   }
 
-  // KDL LMA does not enforce joint limits; reject out-of-range solutions.
-  // Start from the seed so any group joint not part of the chain is preserved.
-  q = seed;
-  for (unsigned int i = 0; i < n; ++i) {
-    if (q_out(i) < limits_[i].first - 1e-6 || q_out(i) > limits_[i].second + 1e-6) {
-      return false;
+  // 2) a few small random restarts around the seed to escape LMA local
+  //    failures while staying continuous.
+  static thread_local std::mt19937 rng(2718281u);
+  std::uniform_real_distribution<double> jitter(-0.25, 0.25);
+  std::vector<double> start = seed;
+  for (int k = 0; k < 20; ++k) {
+    for (unsigned int i = 0; i < n; ++i) {
+      const int gi = chain_to_group_[i];
+      double v = seed[gi] + jitter(rng);
+      v = std::clamp(v, limits_[i].first, limits_[i].second);
+      start[gi] = v;
     }
-    q[chain_to_group_[i]] = q_out(i);
+    if (attempt(start, q)) {
+      return true;
+    }
   }
-  return true;
+  return false;
 }
 
 }  // namespace bimanual_manipulation

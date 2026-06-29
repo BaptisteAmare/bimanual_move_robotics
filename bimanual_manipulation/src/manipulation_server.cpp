@@ -143,6 +143,11 @@ bool ManipulationServer::initialize()
     "~/manage_collision_object",
     std::bind(&ManipulationServer::manageCollisionObject, this, _1, _2));
 
+  marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/collision_objects", rclcpp::QoS(1).transient_local());
+  marker_timer_ = create_wall_timer(
+    std::chrono::milliseconds(500), std::bind(&ManipulationServer::publishMarkers, this));
+
   RCLCPP_INFO(
     get_logger(), "Bimanual manipulation server ready (%zu groups, %zu sequences).",
     config_.groups.size(), config_.sequences.size());
@@ -491,6 +496,75 @@ void ManipulationServer::manageCollisionObject(
       break;
   }
   res->message = res->success ? "ok" : err;
+}
+
+// --- visualization ---------------------------------------------------------
+
+void ManipulationServer::publishMarkers()
+{
+  using Marker = visualization_msgs::msg::Marker;
+  using SP = shape_msgs::msg::SolidPrimitive;
+
+  const auto objects = collision_.objects();
+  visualization_msgs::msg::MarkerArray arr;
+
+  Marker del;
+  del.action = Marker::DELETEALL;
+  arr.markers.push_back(del);
+
+  int id = 0;
+  for (const auto & o : objects) {
+    Marker m;
+    m.header.frame_id = o.attached_link.empty() ? collision_.rootFrame() : o.attached_link;
+    m.header.stamp = now();
+    m.ns = "collision_objects";
+    m.id = id++;
+    m.action = Marker::ADD;
+
+    const Eigen::Quaterniond q(o.pose.linear());
+    m.pose.position.x = o.pose.translation().x();
+    m.pose.position.y = o.pose.translation().y();
+    m.pose.position.z = o.pose.translation().z();
+    m.pose.orientation.x = q.x();
+    m.pose.orientation.y = q.y();
+    m.pose.orientation.z = q.z();
+    m.pose.orientation.w = q.w();
+
+    const auto & d = o.primitive.dimensions;
+    switch (o.primitive.type) {
+      case SP::BOX:
+        if (d.size() >= 3) {
+          m.type = Marker::CUBE;
+          m.scale.x = d[SP::BOX_X];
+          m.scale.y = d[SP::BOX_Y];
+          m.scale.z = d[SP::BOX_Z];
+        }
+        break;
+      case SP::SPHERE:
+        if (!d.empty()) {
+          m.type = Marker::SPHERE;
+          m.scale.x = m.scale.y = m.scale.z = 2.0 * d[SP::SPHERE_RADIUS];
+        }
+        break;
+      case SP::CYLINDER:
+        if (d.size() >= 2) {
+          m.type = Marker::CYLINDER;
+          m.scale.x = m.scale.y = 2.0 * d[SP::CYLINDER_RADIUS];
+          m.scale.z = d[SP::CYLINDER_HEIGHT];
+        }
+        break;
+      default:
+        continue;
+    }
+
+    m.color.r = 1.0f;
+    m.color.g = 0.5f;
+    m.color.b = 0.0f;
+    m.color.a = 0.6f;
+    arr.markers.push_back(m);
+  }
+
+  marker_pub_->publish(arr);
 }
 
 }  // namespace bimanual_manipulation

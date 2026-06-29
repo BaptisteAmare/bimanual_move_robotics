@@ -24,6 +24,7 @@
   <depend>shape_msgs</depend>
   <depend>trajectory_msgs</depend>
   <depend>control_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>urdf</depend>
   <depend>kdl_parser</depend>
   <depend>orocos_kdl_vendor</depend>

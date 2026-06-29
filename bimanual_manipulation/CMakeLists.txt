@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(urdf REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(orocos_kdl REQUIRED)
@@ -36,6 +37,7 @@ set(ament_deps
   shape_msgs
   trajectory_msgs
   control_msgs
+  visualization_msgs
   urdf
   kdl_parser
   resource_retriever

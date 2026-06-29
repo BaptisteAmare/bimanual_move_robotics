@@ -299,6 +299,7 @@ bool CollisionModel::addObject(
   wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, pose);
   wo.pose = pose;
   wo.attached_node = -1;
+  wo.primitive = primitive;
   world_.push_back(std::move(wo));
   return true;
 }
@@ -326,6 +327,8 @@ bool CollisionModel::addAttachedObject(
   wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, pose_in_link);
   wo.pose = pose_in_link;
   wo.attached_node = it->second;
+  wo.primitive = primitive;
+  wo.attached_link = link;
   world_.push_back(std::move(wo));
   return true;
 }
@@ -344,6 +347,17 @@ void CollisionModel::clearObjects()
 {
   std::lock_guard<std::mutex> lock(world_mutex_);
   world_.clear();
+}
+
+std::vector<CollisionModel::ObjectInfo> CollisionModel::objects() const
+{
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  std::vector<ObjectInfo> out;
+  out.reserve(world_.size());
+  for (const auto & wo : world_) {
+    out.push_back({wo.id, wo.primitive, wo.pose, wo.attached_link});
+  }
+  return out;
 }
 
 }  // namespace bimanual_manipulation

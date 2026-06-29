@@ -18,6 +18,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <urdf/model.h>
 #include <kdl/tree.hpp>
 
@@ -83,6 +84,8 @@ private:
     const std::shared_ptr<ManageCollisionObject::Request> req,
     std::shared_ptr<ManageCollisionObject::Response> res);
 
+  void publishMarkers();
+
   // --- state ---------------------------------------------------------------
   urdf::Model urdf_model_;
   KDL::Tree kdl_tree_;
@@ -106,6 +109,9 @@ private:
   rclcpp_action::Server<Move>::SharedPtr move_server_;
   rclcpp_action::Server<ExecuteSequence>::SharedPtr seq_server_;
   rclcpp::Service<ManageCollisionObject>::SharedPtr collision_service_;
+
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::TimerBase::SharedPtr marker_timer_;
 };
 
 }  // namespace bimanual_manipulation
