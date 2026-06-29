@@ -1,6 +1,7 @@
 #include "bimanual_manipulation/collision_model.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <deque>
 
@@ -23,11 +24,22 @@ std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
     resource_retriever::Retriever retriever;
     resource_retriever::MemoryResource res = retriever.get(uri);
 
+    // assimp needs the file extension as a hint to pick the right importer
+    // when reading from memory (otherwise STL/DAE detection often fails).
+    std::string ext;
+    const auto dot = uri.find_last_of('.');
+    if (dot != std::string::npos) {
+      ext = uri.substr(dot + 1);
+      for (auto & c : ext) {c = static_cast<char>(::tolower(c));}
+    }
+
     Assimp::Importer importer;
     const aiScene * scene = importer.ReadFileFromMemory(
       res.data.get(), res.size,
-      aiProcess_Triangulate | aiProcess_JoinIdenticalVertices, nullptr);
+      aiProcess_Triangulate | aiProcess_JoinIdenticalVertices, ext.c_str());
     if (!scene || !scene->HasMeshes()) {
+      std::fprintf(stderr, "[collision_model] mesh '%s' produced no usable geometry: %s\n",
+        uri.c_str(), importer.GetErrorString());
       return nullptr;
     }
 
