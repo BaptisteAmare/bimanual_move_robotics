@@ -89,7 +89,10 @@ bool TrajectoryGenerator::planCartesian(
 
     std::vector<double> q;
     if (!kin.ik(pose, seed, q)) {
-      error = "IK failed at Cartesian fraction " + std::to_string(f);
+      error = "IK failed at Cartesian fraction " + std::to_string(f) + " (" +
+        std::to_string(f * dist) + " m of " + std::to_string(dist) +
+        " m reached) - target likely out of reach or near a singularity from "
+        "the current pose";
       return false;
     }
     if (!valid(q)) {

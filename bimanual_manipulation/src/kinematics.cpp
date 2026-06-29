@@ -10,7 +10,7 @@ namespace
 // Per Cartesian waypoint, reject IK solutions that jump further than this from
 // the seed (the previous waypoint): they would break the straight-line
 // continuity (e.g. an elbow flip) and are unsafe to execute.
-constexpr double kMaxJointJump = 0.6;  // rad
+constexpr double kMaxJointJump = 1.0;  // rad
 }  // namespace
 
 namespace bimanual_manipulation
