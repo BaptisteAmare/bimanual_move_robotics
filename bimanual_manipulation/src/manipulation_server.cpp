@@ -3,6 +3,7 @@
 #include <chrono>
 #include <fstream>
 #include <functional>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -293,11 +294,12 @@ bool ManipulationServer::executeNamedOrJoint(
   motion.cartesian_step = g.cartesian_step;
 
   const auto joints = g.joints;
+  const std::set<std::string> active(g.joints.begin(), g.joints.end());
   auto base_state = currentState();
-  StateValidator valid = [this, joints, base_state](const std::vector<double> & q) {
+  StateValidator valid = [this, joints, active, base_state](const std::vector<double> & q) {
       std::map<std::string, double> full = base_state;
       for (size_t i = 0; i < joints.size(); ++i) {full[joints[i]] = q[i];}
-      return collision_.checkState(full);
+      return collision_.checkState(full, active);
     };
 
   trajectory_msgs::msg::JointTrajectory traj;
@@ -345,11 +347,12 @@ bool ManipulationServer::executeCartesian(
   motion.joint_resolution = config_.collision.resolution;
 
   const auto joints = g.joints;
+  const std::set<std::string> active(g.joints.begin(), g.joints.end());
   auto base_state = currentState();
-  StateValidator valid = [this, joints, base_state](const std::vector<double> & q) {
+  StateValidator valid = [this, joints, active, base_state](const std::vector<double> & q) {
       std::map<std::string, double> full = base_state;
       for (size_t i = 0; i < joints.size(); ++i) {full[joints[i]] = q[i];}
-      return collision_.checkState(full);
+      return collision_.checkState(full, active);
     };
 
   trajectory_msgs::msg::JointTrajectory traj;

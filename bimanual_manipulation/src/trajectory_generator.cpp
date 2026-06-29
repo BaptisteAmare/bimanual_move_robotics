@@ -113,31 +113,48 @@ void TrajectoryGenerator::timeParameterize(
   const Limits & limits, const MotionLimits & motion,
   trajectory_msgs::msg::JointTrajectory & traj)
 {
+  const size_t W = waypoints.size();
   const size_t n = joints.size();
   const double vscale = std::clamp(motion.velocity_scaling, 1e-3, 1.0);
   const double ascale = std::clamp(motion.acceleration_scaling, 1e-3, 1.0);
 
   traj.joint_names = joints;
   traj.points.clear();
-  traj.points.resize(waypoints.size());
+  traj.points.resize(W);
 
-  // Segment durations limited by velocity, then stretched to respect the
-  // acceleration limit when the velocity changes between segments.
-  std::vector<double> dt(waypoints.size(), 0.0);
-  for (size_t s = 1; s < waypoints.size(); ++s) {
+  // 1) Velocity-limited segment durations. Summed over the path this gives a
+  //    total time that is independent of how densely the path was sampled.
+  std::vector<double> dt(W, 0.0);
+  for (size_t s = 1; s < W; ++s) {
     double seg = kMinSegmentTime;
     for (size_t i = 0; i < n; ++i) {
       const double dq = std::abs(waypoints[s][i] - waypoints[s - 1][i]);
       const double vmax = std::max(limits.max_velocity[i] * vscale, 1e-6);
       seg = std::max(seg, dq / vmax);
-      const double amax = std::max(limits.max_acceleration[i] * ascale, 1e-6);
-      seg = std::max(seg, std::sqrt(2.0 * dq / amax));
     }
     dt[s] = seg;
   }
 
+  // 2) Single global time-stretch so the acceleration limit is respected
+  //    (acceleration scales as 1/time^2, hence the sqrt of the worst ratio).
+  double accel_ratio = 1.0;
+  for (size_t s = 1; s + 1 < W; ++s) {
+    const double dtm = 0.5 * (dt[s] + dt[s + 1]);
+    if (dtm < 1e-9) {continue;}
+    for (size_t i = 0; i < n; ++i) {
+      const double v_in = (waypoints[s][i] - waypoints[s - 1][i]) / dt[s];
+      const double v_out = (waypoints[s + 1][i] - waypoints[s][i]) / dt[s + 1];
+      const double a = std::abs(v_out - v_in) / dtm;
+      const double amax = std::max(limits.max_acceleration[i] * ascale, 1e-6);
+      accel_ratio = std::max(accel_ratio, a / amax);
+    }
+  }
+  const double k = std::sqrt(accel_ratio);
+  for (auto & d : dt) {d *= k;}
+
+  // 3) Timestamps.
   double t = 0.0;
-  for (size_t s = 0; s < waypoints.size(); ++s) {
+  for (size_t s = 0; s < W; ++s) {
     t += dt[s];
     auto & pt = traj.points[s];
     pt.positions = waypoints[s];
@@ -146,17 +163,9 @@ void TrajectoryGenerator::timeParameterize(
     pt.time_from_start = rclcpp::Duration::from_seconds(t);
   }
 
-  // Central-difference velocities for smoother tracking; endpoints stay at 0.
-  for (size_t s = 1; s + 1 < waypoints.size(); ++s) {
-    const double tprev = traj.points[s].time_from_start.sec +
-      traj.points[s].time_from_start.nanosec * 1e-9 -
-      (traj.points[s - 1].time_from_start.sec +
-      traj.points[s - 1].time_from_start.nanosec * 1e-9);
-    const double tnext = traj.points[s + 1].time_from_start.sec +
-      traj.points[s + 1].time_from_start.nanosec * 1e-9 -
-      (traj.points[s].time_from_start.sec +
-      traj.points[s].time_from_start.nanosec * 1e-9);
-    const double denom = std::max(tprev + tnext, 1e-6);
+  // 4) Central-difference velocities for smoother tracking; endpoints stay 0.
+  for (size_t s = 1; s + 1 < W; ++s) {
+    const double denom = std::max(dt[s] + dt[s + 1], 1e-6);
     for (size_t i = 0; i < n; ++i) {
       traj.points[s].velocities[i] =
         (waypoints[s + 1][i] - waypoints[s - 1][i]) / denom;

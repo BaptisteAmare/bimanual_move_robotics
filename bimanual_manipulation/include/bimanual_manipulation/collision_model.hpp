@@ -36,6 +36,14 @@ public:
   // name -> value; any joint omitted is treated as 0.
   bool checkState(const std::map<std::string, double> & joint_values) const;
 
+  // Same, but only checks pairs involving a link that actually moves with one
+  // of `active_joints` (links whose transform does not depend on those joints
+  // are assumed unchanged, so static-vs-static pairs are skipped). This makes
+  // validating a single arm's motion much cheaper.
+  bool checkState(
+    const std::map<std::string, double> & joint_values,
+    const std::set<std::string> & active_joints) const;
+
   // --- world object management (thread-safe) -------------------------------
   // Free object, pose expressed in the planning (root) frame.
   bool addObject(
@@ -109,6 +117,10 @@ private:
   void computeLinkTransforms(
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
+
+  bool checkStateImpl(
+    const std::map<std::string, double> & joint_values,
+    const std::set<std::string> * active_joints) const;
 
   CollisionSettings settings_;
   std::string root_frame_;

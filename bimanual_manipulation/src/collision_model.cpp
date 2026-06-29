@@ -266,10 +266,37 @@ void CollisionModel::computeLinkTransforms(
 
 bool CollisionModel::checkState(const std::map<std::string, double> & joint_values) const
 {
+  return checkStateImpl(joint_values, nullptr);
+}
+
+bool CollisionModel::checkState(
+  const std::map<std::string, double> & joint_values,
+  const std::set<std::string> & active_joints) const
+{
+  return checkStateImpl(joint_values, &active_joints);
+}
+
+bool CollisionModel::checkStateImpl(
+  const std::map<std::string, double> & joint_values,
+  const std::set<std::string> * active_joints) const
+{
   if (!settings_.enabled) {return true;}
 
   std::vector<Eigen::Isometry3d> tf;
   computeLinkTransforms(joint_values, tf);
+
+  // A node is "active" when its transform depends on one of the active joints,
+  // i.e. its parent joint is active or its parent node is active. With no
+  // active set, everything is active (full check).
+  std::vector<char> active(nodes_.size(), active_joints ? 0 : 1);
+  if (active_joints) {
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      const int p = nodes_[i].parent;
+      if (p >= 0 && (active[p] || active_joints->count(nodes_[i].joint_name))) {
+        active[i] = 1;
+      }
+    }
+  }
 
   // Build collision objects once for every shape.
   std::vector<fcl::CollisionObjectd> objs;
@@ -283,6 +310,12 @@ bool CollisionModel::checkState(const std::map<std::string, double> & joint_valu
 
   // --- self collision ------------------------------------------------------
   for (const auto & pair : check_pairs_) {
+    // Skip pairs that cannot have changed (both links static for this motion).
+    if (active_joints && !active[shapes_[pair.first].node] &&
+      !active[shapes_[pair.second].node])
+    {
+      continue;
+    }
     fcl::CollisionObjectd & a = objs[pair.first];
     fcl::CollisionObjectd & b = objs[pair.second];
     if (!a.getAABB().overlap(b.getAABB())) {continue;}
@@ -301,9 +334,10 @@ bool CollisionModel::checkState(const std::map<std::string, double> & joint_valu
       wobj->computeAABB();
     }
     for (size_t i = 0; i < objs.size(); ++i) {
+      const int sn = shapes_[i].node;
+      if (active_joints && !active[sn]) {continue;}  // static link, unchanged
       // Skip the link the object is attached to and its direct parent.
       if (wo.attached_node >= 0) {
-        const int sn = shapes_[i].node;
         if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
           nodes_[wo.attached_node].parent == sn)
         {
