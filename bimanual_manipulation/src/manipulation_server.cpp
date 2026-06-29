@@ -1,7 +1,9 @@
 #include "bimanual_manipulation/manipulation_server.hpp"
 
 #include <chrono>
+#include <fstream>
 #include <functional>
+#include <sstream>
 #include <thread>
 
 #include <kdl_parser/kdl_parser.hpp>
@@ -20,6 +22,7 @@ ManipulationServer::ManipulationServer(const rclcpp::NodeOptions & options)
 : rclcpp::Node("bimanual_manipulation_server", options)
 {
   declare_parameter<std::string>("robot_description", "");
+  declare_parameter<std::string>("robot_description_file", "");
   declare_parameter<std::string>("robot_description_topic", "/robot_description");
   declare_parameter<std::string>("move_groups_config", "");
   declare_parameter<std::string>("named_poses_config", "");
@@ -34,6 +37,21 @@ bool ManipulationServer::loadUrdf(std::string & urdf_xml)
   urdf_xml = get_parameter("robot_description").as_string();
   if (!urdf_xml.empty()) {
     return true;
+  }
+
+  // A file on disk (e.g. the full description URDF with collision meshes) takes
+  // priority over the live topic, which may be a kinematics-only URDF.
+  const std::string file = get_parameter("robot_description_file").as_string();
+  if (!file.empty()) {
+    std::ifstream in(file);
+    if (!in) {
+      RCLCPP_ERROR(get_logger(), "Cannot open robot_description_file '%s'", file.c_str());
+      return false;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    urdf_xml = ss.str();
+    return !urdf_xml.empty();
   }
 
   const std::string topic = get_parameter("robot_description_topic").as_string();
@@ -99,6 +117,18 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
     RCLCPP_INFO(
       get_logger(), "%zu link(s) had no <collision> and use <visual> geometry instead.",
       collision_.visualFallbackCount());
+  }
+  if (collision_.meshTotal() > 0) {
+    RCLCPP_INFO(
+      get_logger(), "Meshes: %zu loaded, %zu failed.",
+      collision_.meshTotal() - collision_.meshFailed(), collision_.meshFailed());
+  }
+  if (collision_.shapeCount() == 0) {
+    RCLCPP_WARN(
+      get_logger(),
+      "No collision geometry at all - self-collision checking is INEFFECTIVE. "
+      "Point 'robot_description_file' at a URDF that includes <collision>/<visual> "
+      "meshes (e.g. your full robot_description), not a kinematics-only URDF.");
   }
   const auto & missing = collision_.linksWithoutCollision();
   if (!missing.empty()) {

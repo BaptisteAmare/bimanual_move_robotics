@@ -151,7 +151,10 @@ bool CollisionModel::init(
         }
         case urdf::Geometry::MESH: {
           auto m = std::dynamic_pointer_cast<urdf::Mesh>(g);
-          return loadMesh(m->filename, m->scale);
+          ++meshes_total_;
+          auto geom = loadMesh(m->filename, m->scale);
+          if (!geom) {++meshes_failed_;}
+          return geom;
         }
         default:
           return nullptr;

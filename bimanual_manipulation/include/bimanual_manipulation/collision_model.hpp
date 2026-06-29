@@ -66,6 +66,8 @@ public:
   size_t shapeCount() const {return shapes_.size();}
   size_t checkPairCount() const {return check_pairs_.size();}
   size_t visualFallbackCount() const {return visual_fallback_links_;}
+  size_t meshTotal() const {return meshes_total_;}
+  size_t meshFailed() const {return meshes_failed_;}
   const std::vector<std::string> & linksWithoutCollision() const
   {
     return links_without_collision_;
@@ -116,6 +118,8 @@ private:
   std::vector<LinkShape> shapes_;
   std::vector<std::string> links_without_collision_;
   size_t visual_fallback_links_ = 0;
+  size_t meshes_total_ = 0;
+  size_t meshes_failed_ = 0;
 
   // Precomputed list of shape index pairs that must be tested for
   // self-collision (i.e. all pairs except the allowed/adjacent ones).
