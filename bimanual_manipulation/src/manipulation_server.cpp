@@ -303,10 +303,21 @@ bool ManipulationServer::executeNamedOrJoint(
     };
 
   trajectory_msgs::msg::JointTrajectory traj;
+  const auto t0 = std::chrono::steady_clock::now();
   if (!TrajectoryGenerator::planJoint(g.joints, start, target, limits, motion, valid, traj, error)) {
     return false;
   }
-  return move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  const auto t1 = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    get_logger(), "[%s] trajectory generated in %.0f ms (%zu waypoints), executing...",
+    g.name.c_str(),
+    std::chrono::duration<double, std::milli>(t1 - t0).count(), traj.points.size());
+  const bool ok = move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  RCLCPP_INFO(
+    get_logger(), "[%s] execution finished in %.0f ms (%s)", g.name.c_str(),
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count(),
+    ok ? "ok" : "failed");
+  return ok;
 }
 
 bool ManipulationServer::executeCartesian(
@@ -356,12 +367,23 @@ bool ManipulationServer::executeCartesian(
     };
 
   trajectory_msgs::msg::JointTrajectory traj;
+  const auto t0 = std::chrono::steady_clock::now();
   if (!TrajectoryGenerator::planCartesian(
       g.joints, *kin, start, start_pose, goal_pose, limits, motion, valid, traj, error))
   {
     return false;
   }
-  return move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  const auto t1 = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    get_logger(), "[%s] cartesian trajectory generated in %.0f ms (%zu waypoints), executing...",
+    g.name.c_str(),
+    std::chrono::duration<double, std::milli>(t1 - t0).count(), traj.points.size());
+  const bool ok = move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  RCLCPP_INFO(
+    get_logger(), "[%s] execution finished in %.0f ms (%s)", g.name.c_str(),
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count(),
+    ok ? "ok" : "failed");
+  return ok;
 }
 
 bool ManipulationServer::executeStep(const MotionStep & step, std::string & error)
