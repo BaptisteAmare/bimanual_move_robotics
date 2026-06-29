@@ -30,6 +30,7 @@
 #include "bimanual_manipulation/config_loader.hpp"
 #include "bimanual_manipulation/kinematics.hpp"
 #include "bimanual_manipulation/move_group.hpp"
+#include "bimanual_manipulation/trajectory_generator.hpp"
 
 namespace bimanual_manipulation
 {
