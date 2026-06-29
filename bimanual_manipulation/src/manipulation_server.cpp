@@ -121,8 +121,9 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
   }
   if (collision_.meshTotal() > 0) {
     RCLCPP_INFO(
-      get_logger(), "Meshes: %zu loaded, %zu failed.",
-      collision_.meshTotal() - collision_.meshFailed(), collision_.meshFailed());
+      get_logger(), "Meshes: %zu loaded, %zu failed, %zu collision triangles total.",
+      collision_.meshTotal() - collision_.meshFailed(), collision_.meshFailed(),
+      collision_.meshTriangles());
   }
   if (collision_.shapeCount() == 0) {
     RCLCPP_WARN(

@@ -16,6 +16,10 @@ collision:
   enabled: true
   padding: 0.0          # uniform inflation of robot links [m] (safety margin)
   resolution: 0.02      # joint-space step between collision-checked waypoints [rad]
+  # Simplify detailed collision meshes by clustering vertices on a grid of this
+  # size [m]. Huge speedup on visual-quality meshes. Increase for more speed /
+  # coarser shape, set to 0.0 to keep the full-resolution meshes.
+  mesh_decimation: 0.02
 
   disabled_pairs:
     - [torso_link, L_shoulder_pitch_link]

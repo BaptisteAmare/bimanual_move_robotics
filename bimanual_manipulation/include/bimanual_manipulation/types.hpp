@@ -47,6 +47,10 @@ struct CollisionSettings
 {
   double padding = 0.0;              // uniform inflation applied to robot links [m]
   double resolution = 0.02;          // joint-space validation step [rad]
+  // Collision-mesh simplification: vertices are clustered on a grid of this
+  // size [m] at load time, drastically cutting triangle count (and therefore
+  // collision-check time) on detailed meshes. 0 disables it.
+  double mesh_decimation = 0.02;
   bool enabled = true;
   // Pairs of links whose mutual collisions are ignored (like an SRDF ACM).
   std::vector<std::pair<std::string, std::string>> disabled_pairs;

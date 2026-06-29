@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <deque>
+#include <tuple>
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -16,9 +18,56 @@ namespace bimanual_manipulation
 namespace
 {
 
-// Load a mesh resource (package:// or file://) into an FCL BVH model.
+// Vertex-clustering decimation: snap vertices onto a grid of size `voxel`,
+// merge co-located ones to their centroid, and drop the resulting degenerate
+// triangles. Cheaply turns a detailed mesh into a coarse collision proxy.
+void decimate(
+  std::vector<fcl::Vector3d> & verts, std::vector<fcl::Triangle> & tris, double voxel)
+{
+  if (voxel <= 0.0 || verts.empty()) {return;}
+  const double inv = 1.0 / voxel;
+  std::map<std::tuple<int, int, int>, int> cell_to_new;
+  std::vector<fcl::Vector3d> sum;
+  std::vector<int> count;
+  std::vector<int> remap(verts.size());
+
+  for (size_t i = 0; i < verts.size(); ++i) {
+    const auto key = std::make_tuple(
+      static_cast<int>(std::floor(verts[i].x() * inv)),
+      static_cast<int>(std::floor(verts[i].y() * inv)),
+      static_cast<int>(std::floor(verts[i].z() * inv)));
+    auto it = cell_to_new.find(key);
+    int idx;
+    if (it == cell_to_new.end()) {
+      idx = static_cast<int>(sum.size());
+      cell_to_new.emplace(key, idx);
+      sum.push_back(verts[i]);
+      count.push_back(1);
+    } else {
+      idx = it->second;
+      sum[idx] += verts[i];
+      ++count[idx];
+    }
+    remap[i] = idx;
+  }
+
+  std::vector<fcl::Vector3d> nv(sum.size());
+  for (size_t i = 0; i < sum.size(); ++i) {nv[i] = sum[i] / count[i];}
+
+  std::vector<fcl::Triangle> nt;
+  nt.reserve(tris.size());
+  for (const auto & t : tris) {
+    const int a = remap[t[0]], b = remap[t[1]], c = remap[t[2]];
+    if (a != b && b != c && a != c) {nt.emplace_back(a, b, c);}
+  }
+  verts.swap(nv);
+  tris.swap(nt);
+}
+
+// Load a mesh resource (package:// or file://) into an FCL BVH model,
+// optionally decimated. Adds the resulting triangle count to *tri_count.
 std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
-  const std::string & uri, const urdf::Vector3 & scale)
+  const std::string & uri, const urdf::Vector3 & scale, double voxel, size_t * tri_count)
 {
   try {
     resource_retriever::Retriever retriever;
@@ -62,7 +111,9 @@ std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
           triangles.emplace_back(face.mIndices[0], face.mIndices[1], face.mIndices[2]);
         }
       }
-      model->addSubModel(vertices, triangles);
+      decimate(vertices, triangles, voxel);
+      if (tri_count) {*tri_count += triangles.size();}
+      if (!triangles.empty()) {model->addSubModel(vertices, triangles);}
     }
     model->endModel();
     return model;
@@ -164,7 +215,7 @@ bool CollisionModel::init(
         case urdf::Geometry::MESH: {
           auto m = std::dynamic_pointer_cast<urdf::Mesh>(g);
           ++meshes_total_;
-          auto geom = loadMesh(m->filename, m->scale);
+          auto geom = loadMesh(m->filename, m->scale, settings_.mesh_decimation, &mesh_triangles_);
           if (!geom) {++meshes_failed_;}
           return geom;
         }
