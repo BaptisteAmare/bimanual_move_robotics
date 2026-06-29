@@ -28,13 +28,13 @@ groups:
     tip_link: L_industrial_hand_base_link
     cartesian_step: 0.005
     joints:
-      - L_shoulder_pitch
-      - L_shoulder_roll
-      - L_shoulder_yaw
-      - L_elbow_roll
-      - L_elbow_yaw
-      - L_wrist_pitch
-      - L_wrist_roll
+      - L_shoulder_pitch_joint
+      - L_shoulder_roll_joint
+      - L_shoulder_yaw_joint
+      - L_elbow_roll_joint
+      - L_elbow_yaw_joint
+      - L_wrist_pitch_joint
+      - L_wrist_roll_joint
     controllers:
       - name: /left_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
@@ -44,13 +44,13 @@ groups:
     tip_link: R_industrial_hand_base_link
     cartesian_step: 0.005
     joints:
-      - R_shoulder_pitch
-      - R_shoulder_roll
-      - R_shoulder_yaw
-      - R_elbow_roll
-      - R_elbow_yaw
-      - R_wrist_pitch
-      - R_wrist_roll
+      - R_shoulder_pitch_joint
+      - R_shoulder_roll_joint
+      - R_shoulder_yaw_joint
+      - R_elbow_roll_joint
+      - R_elbow_yaw_joint
+      - R_wrist_pitch_joint
+      - R_wrist_roll_joint
     controllers:
       - name: /right_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
@@ -59,41 +59,41 @@ groups:
   # arm controllers so they move simultaneously. No tip_link -> joint/named only.
   both_arms:
     joints:
-      - L_shoulder_pitch
-      - L_shoulder_roll
-      - L_shoulder_yaw
-      - L_elbow_roll
-      - L_elbow_yaw
-      - L_wrist_pitch
-      - L_wrist_roll
-      - R_shoulder_pitch
-      - R_shoulder_roll
-      - R_shoulder_yaw
-      - R_elbow_roll
-      - R_elbow_yaw
-      - R_wrist_pitch
-      - R_wrist_roll
+      - L_shoulder_pitch_joint
+      - L_shoulder_roll_joint
+      - L_shoulder_yaw_joint
+      - L_elbow_roll_joint
+      - L_elbow_yaw_joint
+      - L_wrist_pitch_joint
+      - L_wrist_roll_joint
+      - R_shoulder_pitch_joint
+      - R_shoulder_roll_joint
+      - R_shoulder_yaw_joint
+      - R_elbow_roll_joint
+      - R_elbow_yaw_joint
+      - R_wrist_pitch_joint
+      - R_wrist_roll_joint
     controllers:
       - name: /left_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
         joints:
-          - L_shoulder_pitch
-          - L_shoulder_roll
-          - L_shoulder_yaw
-          - L_elbow_roll
-          - L_elbow_yaw
-          - L_wrist_pitch
-          - L_wrist_roll
+          - L_shoulder_pitch_joint
+          - L_shoulder_roll_joint
+          - L_shoulder_yaw_joint
+          - L_elbow_roll_joint
+          - L_elbow_yaw_joint
+          - L_wrist_pitch_joint
+          - L_wrist_roll_joint
       - name: /right_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
         joints:
-          - R_shoulder_pitch
-          - R_shoulder_roll
-          - R_shoulder_yaw
-          - R_elbow_roll
-          - R_elbow_yaw
-          - R_wrist_pitch
-          - R_wrist_roll
+          - R_shoulder_pitch_joint
+          - R_shoulder_roll_joint
+          - R_shoulder_yaw_joint
+          - R_elbow_roll_joint
+          - R_elbow_yaw_joint
+          - R_wrist_pitch_joint
+          - R_wrist_roll_joint
 
   # Optional: enable the torso (waist) as its own group. Uncomment and fix the
   # joint names if you want to command it. The Walker S2 also exposes
