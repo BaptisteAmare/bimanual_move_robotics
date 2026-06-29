@@ -5,6 +5,7 @@
 #include <thread>
 
 #include <kdl_parser/kdl_parser.hpp>
+#include <srdfdom/model.h>
 
 #include "bimanual_manipulation/trajectory_generator.hpp"
 
@@ -24,6 +25,7 @@ ManipulationServer::ManipulationServer(const rclcpp::NodeOptions & options)
   declare_parameter<std::string>("named_poses_config", "");
   declare_parameter<std::string>("collision_config", "");
   declare_parameter<std::string>("sequences_config", "");
+  declare_parameter<std::string>("srdf_config", "");
   declare_parameter<double>("gripper_max_effort", 50.0);
 }
 
@@ -68,8 +70,39 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
     error = "failed to build KDL tree from URDF";
     return false;
   }
+
+  // Merge the MoveIt SRDF allowed-collision matrix, if provided.
+  const std::string srdf_path = get_parameter("srdf_config").as_string();
+  if (!srdf_path.empty()) {
+    srdf::Model srdf;
+    if (srdf.initFile(urdf_model_, srdf_path)) {
+      const auto & pairs = srdf.getDisabledCollisionPairs();
+      for (const auto & p : pairs) {
+        config_.collision.disabled_pairs.emplace_back(p.link1_, p.link2_);
+      }
+      RCLCPP_INFO(
+        get_logger(), "Loaded %zu disabled collision pairs from SRDF '%s'.",
+        pairs.size(), srdf_path.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "Could not parse SRDF '%s'.", srdf_path.c_str());
+    }
+  }
+
   if (!collision_.init(urdf_model_, config_.collision, error)) {
     return false;
+  }
+
+  RCLCPP_INFO(
+    get_logger(), "Collision model: %zu shapes, %zu link pairs checked.",
+    collision_.shapeCount(), collision_.checkPairCount());
+  const auto & missing = collision_.linksWithoutCollision();
+  if (!missing.empty()) {
+    std::string list;
+    for (const auto & l : missing) {list += l + " ";}
+    RCLCPP_WARN(
+      get_logger(),
+      "%zu link(s) have NO collision geometry (self-collision NOT checked for "
+      "them): %s", missing.size(), list.c_str());
   }
 
   // Per-joint velocity / acceleration limits (acceleration is rarely in the

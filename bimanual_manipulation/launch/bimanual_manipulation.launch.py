@@ -30,6 +30,9 @@ def generate_launch_description():
             'collision_config', default_value=os.path.join(cfg, 'collision.yaml')),
         DeclareLaunchArgument(
             'sequences_config', default_value=os.path.join(cfg, 'sequences.yaml')),
+        DeclareLaunchArgument(
+            'srdf_config', default_value='',
+            description='Optional MoveIt .srdf; its disable_collisions feed the ACM.'),
         DeclareLaunchArgument('robot_description', default_value=''),
         DeclareLaunchArgument('robot_description_topic', default_value='/robot_description'),
         DeclareLaunchArgument('gripper_max_effort', default_value='50.0'),
@@ -45,6 +48,7 @@ def generate_launch_description():
             'named_poses_config': LaunchConfiguration('named_poses_config'),
             'collision_config': LaunchConfiguration('collision_config'),
             'sequences_config': LaunchConfiguration('sequences_config'),
+            'srdf_config': LaunchConfiguration('srdf_config'),
             'robot_description': LaunchConfiguration('robot_description'),
             'robot_description_topic': LaunchConfiguration('robot_description_topic'),
             'gripper_max_effort': LaunchConfiguration('gripper_max_effort'),

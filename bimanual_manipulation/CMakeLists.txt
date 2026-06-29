@@ -19,6 +19,7 @@ find_package(trajectory_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(urdf REQUIRED)
+find_package(srdfdom REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(resource_retriever REQUIRED)
@@ -39,6 +40,7 @@ set(ament_deps
   control_msgs
   visualization_msgs
   urdf
+  srdfdom
   kdl_parser
   resource_retriever
   bimanual_msgs

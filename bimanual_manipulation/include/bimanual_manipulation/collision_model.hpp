@@ -62,6 +62,14 @@ public:
   const std::string & rootFrame() const {return root_frame_;}
   bool enabled() const {return settings_.enabled;}
 
+  // Diagnostics (valid after init()).
+  size_t shapeCount() const {return shapes_.size();}
+  size_t checkPairCount() const {return check_pairs_.size();}
+  const std::vector<std::string> & linksWithoutCollision() const
+  {
+    return links_without_collision_;
+  }
+
 private:
   // A single rigid link in the kinematic walk.
   struct LinkNode
@@ -105,6 +113,7 @@ private:
   std::vector<LinkNode> nodes_;
   std::map<std::string, int> node_index_;
   std::vector<LinkShape> shapes_;
+  std::vector<std::string> links_without_collision_;
 
   // Precomputed list of shape index pairs that must be tested for
   // self-collision (i.e. all pairs except the allowed/adjacent ones).

@@ -170,6 +170,16 @@ bool CollisionModel::init(
     }
   }
 
+  // Note which links ended up with no collision geometry (e.g. mesh failed to
+  // load, or the link genuinely has none) so the server can warn about it.
+  {
+    std::vector<int> shapes_per_node(nodes_.size(), 0);
+    for (const auto & s : shapes_) {++shapes_per_node[s.node];}
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      if (shapes_per_node[i] == 0) {links_without_collision_.push_back(nodes_[i].name);}
+    }
+  }
+
   // --- allowed (skipped) self-collision pairs ------------------------------
   auto same_or_adjacent = [&](int na, int nb) {
       if (na == nb) {return true;}
