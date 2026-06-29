@@ -95,6 +95,11 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
   RCLCPP_INFO(
     get_logger(), "Collision model: %zu shapes, %zu link pairs checked.",
     collision_.shapeCount(), collision_.checkPairCount());
+  if (collision_.visualFallbackCount() > 0) {
+    RCLCPP_INFO(
+      get_logger(), "%zu link(s) had no <collision> and use <visual> geometry instead.",
+      collision_.visualFallbackCount());
+  }
   const auto & missing = collision_.linksWithoutCollision();
   if (!missing.empty()) {
     std::string list;

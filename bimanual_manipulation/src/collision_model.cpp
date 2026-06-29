@@ -132,41 +132,55 @@ bool CollisionModel::init(
   }
 
   // --- collision shapes per link ------------------------------------------
+  const double pad = settings_.padding;
+  auto build = [&](const urdf::GeometrySharedPtr & g)
+    -> std::shared_ptr<fcl::CollisionGeometryd> {
+      switch (g->type) {
+        case urdf::Geometry::BOX: {
+          auto b = std::dynamic_pointer_cast<urdf::Box>(g);
+          return std::make_shared<fcl::Boxd>(
+            b->dim.x + 2 * pad, b->dim.y + 2 * pad, b->dim.z + 2 * pad);
+        }
+        case urdf::Geometry::SPHERE: {
+          auto s = std::dynamic_pointer_cast<urdf::Sphere>(g);
+          return std::make_shared<fcl::Sphered>(s->radius + pad);
+        }
+        case urdf::Geometry::CYLINDER: {
+          auto c = std::dynamic_pointer_cast<urdf::Cylinder>(g);
+          return std::make_shared<fcl::Cylinderd>(c->radius + pad, c->length + 2 * pad);
+        }
+        case urdf::Geometry::MESH: {
+          auto m = std::dynamic_pointer_cast<urdf::Mesh>(g);
+          return loadMesh(m->filename, m->scale);
+        }
+        default:
+          return nullptr;
+      }
+    };
+
   for (const auto & node : nodes_) {
     urdf::LinkConstSharedPtr link = model.getLink(node.name);
     if (!link) {continue;}
     const int node_idx = node_index_[node.name];
-    for (const auto & col : link->collision_array) {
-      if (!col || !col->geometry) {continue;}
-      std::shared_ptr<fcl::CollisionGeometryd> geom;
-      const double pad = settings_.padding;
-      switch (col->geometry->type) {
-        case urdf::Geometry::BOX: {
-          auto b = std::dynamic_pointer_cast<urdf::Box>(col->geometry);
-          geom = std::make_shared<fcl::Boxd>(
-            b->dim.x + 2 * pad, b->dim.y + 2 * pad, b->dim.z + 2 * pad);
-          break;
-        }
-        case urdf::Geometry::SPHERE: {
-          auto s = std::dynamic_pointer_cast<urdf::Sphere>(col->geometry);
-          geom = std::make_shared<fcl::Sphered>(s->radius + pad);
-          break;
-        }
-        case urdf::Geometry::CYLINDER: {
-          auto c = std::dynamic_pointer_cast<urdf::Cylinder>(col->geometry);
-          geom = std::make_shared<fcl::Cylinderd>(c->radius + pad, c->length + 2 * pad);
-          break;
-        }
-        case urdf::Geometry::MESH: {
-          auto m = std::dynamic_pointer_cast<urdf::Mesh>(col->geometry);
-          geom = loadMesh(m->filename, m->scale);
-          break;
-        }
-        default:
-          break;
+
+    // Prefer <collision> geometry; fall back to <visual> when a link declares
+    // none (common on robots that only model visuals).
+    std::vector<std::pair<urdf::GeometrySharedPtr, urdf::Pose>> geoms;
+    if (!link->collision_array.empty()) {
+      for (const auto & c : link->collision_array) {
+        if (c && c->geometry) {geoms.emplace_back(c->geometry, c->origin);}
       }
+    } else {
+      for (const auto & v : link->visual_array) {
+        if (v && v->geometry) {geoms.emplace_back(v->geometry, v->origin);}
+      }
+      if (!geoms.empty()) {++visual_fallback_links_;}
+    }
+
+    for (const auto & [geometry, origin] : geoms) {
+      auto geom = build(geometry);
       if (!geom) {continue;}
-      shapes_.push_back({node_idx, geom, urdfToEigen(col->origin)});
+      shapes_.push_back({node_idx, geom, urdfToEigen(origin)});
     }
   }
 
