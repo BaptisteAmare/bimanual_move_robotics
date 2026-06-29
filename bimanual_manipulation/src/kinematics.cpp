@@ -19,14 +19,31 @@ bool GroupKinematics::init(
     return false;
   }
 
-  // Collect joint limits in chain order, reading them from the URDF.
+  group_dof_ = cfg.joints.size();
+
+  // For each actuated chain joint: read its URDF limits and map it to its
+  // position in the group's joint list (by name).
   limits_.clear();
+  chain_to_group_.clear();
   for (unsigned int i = 0; i < chain_.getNrOfSegments(); ++i) {
     const KDL::Joint & joint = chain_.getSegment(i).getJoint();
     if (joint.getType() == KDL::Joint::None) {
       continue;  // fixed joint, contributes no DoF
     }
-    auto uj = model.getJoint(joint.getName());
+    const std::string & jn = joint.getName();
+
+    int group_idx = -1;
+    for (size_t g = 0; g < cfg.joints.size(); ++g) {
+      if (cfg.joints[g] == jn) {group_idx = static_cast<int>(g); break;}
+    }
+    if (group_idx < 0) {
+      error = "chain joint '" + jn + "' of group '" + cfg.name +
+        "' is not listed in its 'joints'";
+      return false;
+    }
+    chain_to_group_.push_back(group_idx);
+
+    auto uj = model.getJoint(jn);
     double lower = -std::numeric_limits<double>::infinity();
     double upper = std::numeric_limits<double>::infinity();
     if (uj && uj->limits && uj->type != urdf::Joint::CONTINUOUS) {
@@ -48,12 +65,13 @@ bool GroupKinematics::init(
 
 bool GroupKinematics::fkTip(const std::vector<double> & q, Eigen::Isometry3d & pose) const
 {
-  if (q.size() != chain_.getNrOfJoints()) {
+  if (q.size() != group_dof_) {
     return false;
   }
-  KDL::JntArray ja(chain_.getNrOfJoints());
-  for (size_t i = 0; i < q.size(); ++i) {
-    ja(i) = q[i];
+  const unsigned int n = chain_.getNrOfJoints();
+  KDL::JntArray ja(n);
+  for (unsigned int i = 0; i < n; ++i) {
+    ja(i) = q[chain_to_group_[i]];
   }
   KDL::Frame frame;
   if (fk_->JntToCart(ja, frame) < 0) {
@@ -67,13 +85,13 @@ bool GroupKinematics::ik(
   const Eigen::Isometry3d & goal, const std::vector<double> & seed,
   std::vector<double> & q) const
 {
-  const unsigned int n = chain_.getNrOfJoints();
-  if (seed.size() != n) {
+  if (seed.size() != group_dof_) {
     return false;
   }
+  const unsigned int n = chain_.getNrOfJoints();
   KDL::JntArray q_init(n);
   for (unsigned int i = 0; i < n; ++i) {
-    q_init(i) = seed[i];
+    q_init(i) = seed[chain_to_group_[i]];
   }
   KDL::JntArray q_out(n);
   if (ik_->CartToJnt(q_init, eigenToKdl(goal), q_out) < 0) {
@@ -81,12 +99,13 @@ bool GroupKinematics::ik(
   }
 
   // KDL LMA does not enforce joint limits; reject out-of-range solutions.
-  q.resize(n);
+  // Start from the seed so any group joint not part of the chain is preserved.
+  q = seed;
   for (unsigned int i = 0; i < n; ++i) {
     if (q_out(i) < limits_[i].first - 1e-6 || q_out(i) > limits_[i].second + 1e-6) {
       return false;
     }
-    q[i] = q_out(i);
+    q[chain_to_group_[i]] = q_out(i);
   }
   return true;
 }

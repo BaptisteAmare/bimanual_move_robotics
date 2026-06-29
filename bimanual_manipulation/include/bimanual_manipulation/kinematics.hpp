@@ -45,7 +45,14 @@ private:
   KDL::Chain chain_;
   std::shared_ptr<KDL::ChainFkSolverPos_recursive> fk_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_;
-  std::vector<std::pair<double, double>> limits_;  // (lower, upper) per joint
+  std::vector<std::pair<double, double>> limits_;  // (lower, upper) per chain joint
+
+  // q vectors handed to / returned by this class are ordered like the group's
+  // "joints" list; chain_to_group_[i] is the position, in that list, of the
+  // i-th actuated joint of the KDL chain. This makes the YAML joint order
+  // irrelevant (everything is matched by name).
+  size_t group_dof_ = 0;
+  std::vector<int> chain_to_group_;
 };
 
 }  // namespace bimanual_manipulation

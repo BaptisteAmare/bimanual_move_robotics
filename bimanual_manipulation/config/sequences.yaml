@@ -1,39 +1,36 @@
 # ---------------------------------------------------------------------------
-# Predefined sequences. Each is an ordered list of steps; call them by name
-# through the ~/execute_sequence action (field: sequence_name).
+# Predefined sequences, called by name through the ~/execute_sequence action
+# (field: sequence_name).
 #
 # Step types:
-#   named     -> go to a named pose of the group        (fields: group, named)
-#   joint     -> go to explicit joint values            (fields: group, values)
+#   named     -> named pose of the group               (fields: group, named)
+#   joint     -> explicit joint values                 (fields: group, values)
 #   cartesian -> straight-line tip move                 (fields: group, and
 #                either absolute: position [x,y,z] + orientation [x,y,z,w]
 #                or relative: true with offset [dx,dy,dz] and optional
 #                offset_in_tip_frame: true)
-#   gripper   -> actuate a gripper group   (fields: group, named OR position)
+#   gripper   -> actuate a gripper group   (needs a gripper controller; none on
+#                this robot yet, so not used below)
 #
 # Optional on any step: velocity_scaling, acceleration_scaling.
 # ---------------------------------------------------------------------------
 
 sequences:
 
-  # Pick an object with the left arm: approach down the tool axis, close the
-  # gripper, then retreat back up. Cartesian offsets keep the motion straight.
-  pick_left:
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-    - {type: gripper,   group: left_gripper, named: closed}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0,  0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-
-  place_left:
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-    - {type: gripper,   group: left_gripper, named: open}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0,  0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-
-  # Bring both arms to a ready pose, then open both grippers.
+  # Bring both arms to a ready pose (both controllers move together).
   both_ready:
-    - {type: named,   group: both_arms,    named: ready}
-    - {type: gripper, group: left_gripper, named: open}
-    - {type: gripper, group: right_gripper, named: open}
+    - {type: named, group: both_arms, named: ready}
 
-  stow:
-    - {type: named, group: left_arm,  named: tucked}
-    - {type: named, group: right_arm, named: tucked}
+  home:
+    - {type: named, group: both_arms, named: home}
+
+  # Straight-line reach with the left hand: 10 cm forward along the tool axis,
+  # then back. A grasp step (gripper) would go between the two when a hand
+  # controller is available.
+  reach_left:
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+
+  reach_right:
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, 0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
