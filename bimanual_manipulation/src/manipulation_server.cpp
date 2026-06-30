@@ -331,7 +331,7 @@ bool ManipulationServer::computeStepPath(
       }
 
       RRTConnectOptions opt;
-      opt.edge_resolution = config_.collision.resolution;
+      opt.edge_resolution = config_.defaults.rrt_edge_resolution;  // coarse: fast search
       opt.max_iterations = config_.defaults.rrt_max_iterations;
       opt.step_size = config_.defaults.rrt_step;
 
@@ -345,7 +345,9 @@ bool ManipulationServer::computeStepPath(
         return false;
       }
 
-      // Densify the sparse detour at the collision resolution for smooth timing.
+      // Densify the sparse detour at the collision resolution for smooth timing,
+      // re-validating each waypoint at the fine resolution (the search used a
+      // coarser step for speed).
       path.clear();
       path.push_back(sparse.front());
       for (size_t s = 1; s < sparse.size(); ++s) {
@@ -359,6 +361,10 @@ bool ManipulationServer::computeStepPath(
           const double f = static_cast<double>(k) / m;
           std::vector<double> q(a.size());
           for (size_t i = 0; i < a.size(); ++i) {q[i] = a[i] + f * (b[i] - a[i]);}
+          if (!valid(q)) {
+            error = "planned detour failed fine collision re-check";
+            return false;
+          }
           path.push_back(std::move(q));
         }
       }

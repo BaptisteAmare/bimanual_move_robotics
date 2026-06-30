@@ -44,6 +44,8 @@ bool parseGroups(const YAML::Node & root, ManipulationConfig & out, std::string 
     d.avoid_obstacles = planning["avoid_obstacles"].as<bool>(d.avoid_obstacles);
     d.rrt_max_iterations = planning["rrt_max_iterations"].as<int>(d.rrt_max_iterations);
     d.rrt_step = planning["rrt_step"].as<double>(d.rrt_step);
+    d.rrt_edge_resolution =
+      planning["rrt_edge_resolution"].as<double>(d.rrt_edge_resolution);
   }
 
   const YAML::Node groups = root["groups"];

@@ -33,6 +33,8 @@ planning:
   avoid_obstacles: true
   rrt_max_iterations: 4000
   rrt_step: 0.25                     # rad, tree extension step
+  rrt_edge_resolution: 0.06          # rad, coarse collision step during search
+                                     # (final path re-checked at collision.resolution)
 
 groups:
 
