@@ -93,7 +93,7 @@ bool GroupKinematics::fkTip(const std::vector<double> & q, Eigen::Isometry3d & p
 
 bool GroupKinematics::ik(
   const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-  std::vector<double> & q) const
+  std::vector<double> & q, bool limit_jump) const
 {
   if (seed.size() != group_dof_) {
     return false;
@@ -102,8 +102,8 @@ bool GroupKinematics::ik(
   const KDL::Frame goal_kdl = eigenToKdl(goal);
 
   // Attempt a single IK solve from a given start configuration. Accepts the
-  // result only if it respects the joint limits and stays close to the seed
-  // (continuity of the Cartesian path).
+  // result only if it respects the joint limits and (when limit_jump) stays
+  // close to the seed (continuity of the Cartesian path).
   auto attempt = [&](const std::vector<double> & start, std::vector<double> & out) -> bool {
       KDL::JntArray q_init(n);
       for (unsigned int i = 0; i < n; ++i) {
@@ -119,7 +119,7 @@ bool GroupKinematics::ik(
         if (q_out(i) < limits_[i].first - 1e-6 || q_out(i) > limits_[i].second + 1e-6) {
           return false;
         }
-        if (std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
+        if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
           return false;  // discontinuous jump w.r.t. the previous waypoint
         }
         out[gi] = q_out(i);
@@ -132,17 +132,25 @@ bool GroupKinematics::ik(
     return true;
   }
 
-  // 2) a few small random restarts around the seed to escape LMA local
-  //    failures while staying continuous.
+  // 2) random restarts to escape LMA local failures. For path following, keep
+  //    them close to the seed; for a one-shot goto, explore the whole range.
   static thread_local std::mt19937 rng(2718281u);
-  std::uniform_real_distribution<double> jitter(-0.25, 0.25);
   std::vector<double> start = seed;
-  for (int k = 0; k < 20; ++k) {
+  for (int k = 0; k < 30; ++k) {
     for (unsigned int i = 0; i < n; ++i) {
       const int gi = chain_to_group_[i];
-      double v = seed[gi] + jitter(rng);
-      v = std::clamp(v, limits_[i].first, limits_[i].second);
-      start[gi] = v;
+      double v;
+      if (limit_jump) {
+        std::uniform_real_distribution<double> jitter(-0.25, 0.25);
+        v = seed[gi] + jitter(rng);
+      } else if (std::isfinite(limits_[i].first) && std::isfinite(limits_[i].second)) {
+        std::uniform_real_distribution<double> uni(limits_[i].first, limits_[i].second);
+        v = uni(rng);
+      } else {
+        std::uniform_real_distribution<double> uni(-3.14159, 3.14159);
+        v = seed[gi] + uni(rng);
+      }
+      start[gi] = std::clamp(v, limits_[i].first, limits_[i].second);
     }
     if (attempt(start, q)) {
       return true;

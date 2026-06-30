@@ -21,6 +21,8 @@ find_package(visualization_msgs REQUIRED)
 find_package(urdf REQUIRED)
 find_package(srdfdom REQUIRED)
 find_package(kdl_parser REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_eigen REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(resource_retriever REQUIRED)
 find_package(bimanual_msgs REQUIRED)
@@ -42,6 +44,8 @@ set(ament_deps
   urdf
   srdfdom
   kdl_parser
+  tf2_ros
+  tf2_eigen
   resource_retriever
   bimanual_msgs
 )

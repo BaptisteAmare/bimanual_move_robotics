@@ -133,6 +133,8 @@ MotionStep parseStep(const YAML::Node & s)
     step.type = MotionStep::TYPE_CARTESIAN;
     step.relative = s["relative"].as<bool>(false);
     step.offset_in_tip_frame = s["offset_in_tip_frame"].as<bool>(false);
+    step.reference_frame = s["reference_frame"].as<std::string>("");
+    step.cartesian_path = s["cartesian_path"].as<bool>(false);
     auto off = asDoubleList(s["offset"]);
     if (off.size() == 3) {
       step.offset.x = off[0];

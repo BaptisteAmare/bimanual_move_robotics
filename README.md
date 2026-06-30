@@ -127,12 +127,23 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
   "{step: {type: 2, group: left_arm, relative: true, offset_in_tip_frame: true,
            offset: {x: 0.0, y: 0.0, z: -0.10}, velocity_scaling: 0.15}}"
 
+# pose target defined relative to a TF frame (MoveIt-like "pose in frame_id"):
+# bring the left tip 15 cm above the frame 'target_object', solving IK + joint
+# interpolation (cartesian_path:false). Set cartesian_path:true for a straight
+# line (precise approach/retreat).
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 2, group: left_arm, reference_frame: target_object,
+           pose_target: {position: {x: 0.0, y: 0.0, z: 0.15},
+                         orientation: {w: 1.0}}, cartesian_path: false}}"
+
 # close the left gripper
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 3, group: left_gripper, named_target: closed}}"
 ```
 
-`step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper.
+`step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper. For type `2`, the
+goal pose is taken in `reference_frame` (any TF frame) when set, else relative to
+the current tip when `relative:true`, else in the arm's base frame.
 
 ### `~/execute_sequence` — `bimanual_msgs/action/ExecuteSequence`
 Run a predefined or inline sequence (approach → grasp → retreat …).

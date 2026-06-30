@@ -9,6 +9,7 @@
 
 #include <kdl_parser/kdl_parser.hpp>
 #include <srdfdom/model.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 
 #include "bimanual_manipulation/trajectory_generator.hpp"
 
@@ -193,6 +194,9 @@ bool ManipulationServer::initialize()
     return false;
   }
 
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
     "/joint_states", rclcpp::SensorDataQoS(),
     std::bind(&ManipulationServer::onJointState, this, _1));
@@ -339,8 +343,21 @@ bool ManipulationServer::executeCartesian(
     return false;
   }
 
+  // Resolve the goal pose in the arm's base frame.
   Eigen::Isometry3d goal_pose;
-  if (step.relative) {
+  if (!step.reference_frame.empty()) {
+    geometry_msgs::msg::TransformStamped tfm;
+    try {
+      tfm = tf_buffer_->lookupTransform(
+        g.base_link, step.reference_frame, tf2::TimePointZero,
+        tf2::durationFromSec(0.5));
+    } catch (const tf2::TransformException & ex) {
+      error = "TF lookup '" + g.base_link + "' <- '" + step.reference_frame + "' failed: " +
+        ex.what();
+      return false;
+    }
+    goal_pose = tf2::transformToEigen(tfm) * poseMsgToEigen(step.pose_target);
+  } else if (step.relative) {
     goal_pose = start_pose;
     Eigen::Vector3d off(step.offset.x, step.offset.y, step.offset.z);
     goal_pose.translation() += step.offset_in_tip_frame ? (start_pose.linear() * off) : off;
@@ -348,13 +365,26 @@ bool ManipulationServer::executeCartesian(
     goal_pose = poseMsgToEigen(step.pose_target);
   }
 
+  const double vscale =
+    step.velocity_scaling > 0 ? step.velocity_scaling : g.default_velocity_scaling;
+  const double ascale =
+    step.acceleration_scaling > 0 ? step.acceleration_scaling : g.default_acceleration_scaling;
+
+  // Non-straight-line target: solve IK once and go there in joint space.
+  if (!step.cartesian_path) {
+    std::vector<double> target;
+    if (!kin->ik(goal_pose, start, target, /*limit_jump=*/false)) {
+      error = "IK failed for the requested pose target (group '" + g.name + "')";
+      return false;
+    }
+    return executeNamedOrJoint(g, target, vscale, ascale, error);
+  }
+
   Limits limits;
   makeLimits(g, limits);
   MotionLimits motion;
-  motion.velocity_scaling =
-    step.velocity_scaling > 0 ? step.velocity_scaling : g.default_velocity_scaling;
-  motion.acceleration_scaling =
-    step.acceleration_scaling > 0 ? step.acceleration_scaling : g.default_acceleration_scaling;
+  motion.velocity_scaling = vscale;
+  motion.acceleration_scaling = ascale;
   motion.cartesian_step = g.cartesian_step;
   motion.joint_resolution = config_.collision.resolution;
 
