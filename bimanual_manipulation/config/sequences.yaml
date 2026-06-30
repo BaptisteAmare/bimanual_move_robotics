@@ -34,6 +34,14 @@ sequences:
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.10, 0.0], cartesian_path: true}
     - {type: named, group: left_arm, named: home}
 
+  # L-shape demo of blend_radius: go to ready, move +Y then +Z. The corner of
+  # the L is rounded by blend_radius (path), while the motion stays at constant
+  # velocity (acceleration_limiting: false). Set blend_radius: 0.0 to compare.
+  reach_corner:
+    - {type: named, group: left_arm, named: ready}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 0.4}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.20], cartesian_path: true}
+
   # Straight-line reach with the left hand: 10 cm forward along the tool axis,
   # then back. A grasp step (gripper) would go between the two when a hand
   # controller is available.

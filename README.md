@@ -201,14 +201,17 @@ group change is a barrier that closes the current trajectory. The combined
 trajectory uses the **slowest** scaling among its steps. See `wave_left` in
 `sequences.yaml`.
 
-Two `planning:` knobs (in `move_groups.yaml`) shape the timing:
-* `acceleration_limiting` — `false` (default in the example) keeps a **constant
-  velocity-limited** speed across all steps, with no slowdown at corners or
-  direction changes; `true` smooths acceleration (slows near sharp corners,
-  gentler on the hardware).
-* per-step `blend_radius` (rad of joint space, optional, `0` = off) rounds the
-  corner with the next step for a more human-like path. It is re-validated for
-  collisions and the cut is shrunk (or dropped) if it would hit something.
+Timing and path shape are controlled **independently**:
+* `acceleration_limiting` (`planning:` in `move_groups.yaml`) — **timing**.
+  `false` (the example default) keeps a **constant velocity-limited** speed
+  across all steps, no slowdown at corners or direction changes; `true` smooths
+  acceleration (slows near sharp corners, gentler on the hardware).
+* per-step `blend_radius` (rad of joint space, optional, `0` = off) — **path**.
+  Rounds the corner with the next step for a more human-like path. Re-validated
+  for collisions; the cut is shrunk (or dropped) if it would hit something.
+
+Because they are independent, a rounded corner **at constant velocity** is just
+`blend_radius > 0` with `acceleration_limiting: false`.
 
 ### `~/manage_collision_object` — `bimanual_msgs/srv/ManageCollisionObject`
 Add / remove / attach world collision objects (checked on every motion).
