@@ -202,11 +202,13 @@ void TrajectoryGenerator::toTrajectory(
     dt[s] = seg;
   }
 
-  // 2) Acceleration limiting, applied LOCALLY: only the segments around a
-  //    junction whose acceleration exceeds the limit are stretched. A single
-  //    sharp corner (e.g. a direction reversal) thus slows the motion only near
-  //    that corner, not the whole trajectory. Iterate until it settles.
-  for (int iter = 0; iter < 12; ++iter) {
+  // 2) Acceleration limiting, applied LOCALLY and SYMMETRICALLY: each pass
+  //    measures the acceleration at every junction from a snapshot of the
+  //    current times, then stretches only the offending segments in one shot.
+  //    A sharp corner (e.g. a reversal) thus slows the motion only near that
+  //    corner, with no left-to-right bias. Iterate until it settles.
+  for (int iter = 0; iter < 20; ++iter) {
+    std::vector<double> scale(W, 1.0);
     bool changed = false;
     for (size_t s = 1; s + 1 < W; ++s) {
       const double dtm = 0.5 * (dt[s] + dt[s + 1]);
@@ -221,12 +223,13 @@ void TrajectoryGenerator::toTrajectory(
       }
       if (ratio > 1.0001) {
         const double f = std::sqrt(ratio);  // a ~ 1/time^2
-        dt[s] *= f;
-        dt[s + 1] *= f;
+        scale[s] = std::max(scale[s], f);
+        scale[s + 1] = std::max(scale[s + 1], f);
         changed = true;
       }
     }
     if (!changed) {break;}
+    for (size_t s = 0; s < W; ++s) {dt[s] *= scale[s];}
   }
 
   // 3) Timestamps.
