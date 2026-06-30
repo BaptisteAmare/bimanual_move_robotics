@@ -389,11 +389,22 @@ bool ManipulationServer::runTrajectory(
   trajectory_msgs::msg::JointTrajectory traj;
   TrajectoryGenerator::toTrajectory(g.joints, path, limits, motion, traj);
 
-  const auto t0 = std::chrono::steady_clock::now();
-  const bool ok = move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  // Wait for the trajectory's own duration plus a margin, instead of a fixed
+  // timeout that would wrongly abort a legitimately long motion.
+  double duration = 0.0;
+  if (!traj.points.empty()) {
+    const auto & tfs = traj.points.back().time_from_start;
+    duration = tfs.sec + tfs.nanosec * 1e-9;
+  }
+  const double timeout = duration + config_.defaults.execution_timeout;
+
   RCLCPP_INFO(
-    get_logger(), "[%s] executed %zu waypoints in %.0f ms (%s)", g.name.c_str(),
-    traj.points.size(),
+    get_logger(), "[%s] executing %zu waypoints, planned duration %.1f s ...",
+    g.name.c_str(), traj.points.size(), duration);
+  const auto t0 = std::chrono::steady_clock::now();
+  const bool ok = move_groups_.at(g.name)->execute(traj, timeout, error);
+  RCLCPP_INFO(
+    get_logger(), "[%s] execution finished in %.0f ms (%s)", g.name.c_str(),
     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
     ok ? "ok" : "failed");
   return ok;

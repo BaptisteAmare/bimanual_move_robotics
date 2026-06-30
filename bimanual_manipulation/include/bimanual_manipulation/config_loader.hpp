@@ -20,8 +20,8 @@ struct PlanningDefaults
   double velocity_scaling = 0.3;
   double acceleration_scaling = 0.3;
   double joint_velocity = 1.0;        // fallback max joint velocity [rad/s]
-  double joint_acceleration = 2.0;    // fallback max joint accel [rad/s^2]
-  double execution_timeout = 30.0;    // [s]
+  double joint_acceleration = 10.0;   // fallback max joint accel [rad/s^2]
+  double execution_timeout = 10.0;    // extra wait beyond the trajectory duration [s]
 };
 
 struct ManipulationConfig

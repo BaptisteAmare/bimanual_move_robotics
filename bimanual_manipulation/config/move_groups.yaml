@@ -18,8 +18,11 @@ planning:
   default_velocity_scaling: 0.30
   default_acceleration_scaling: 0.30
   default_joint_velocity: 1.0        # rad/s, fallback if URDF has no <limit velocity>
-  default_joint_acceleration: 2.0    # rad/s^2
-  execution_timeout: 30.0            # s
+  # Acceleration is almost never in the URDF, so this effectively sets it; too
+  # low makes motion crawl through direction changes. Raise the scalings and/or
+  # these for snappier motion.
+  default_joint_acceleration: 10.0   # rad/s^2
+  execution_timeout: 10.0            # s, extra wait beyond the trajectory's own duration
 
 groups:
 
