@@ -38,6 +38,11 @@ public:
   // Actuate every gripper_command controller of this group.
   bool executeGripper(double position, double max_effort, double timeout_s, std::string & error);
 
+  // Fire a trajectory at the controllers without waiting for the result,
+  // preempting any goal in progress. Used for continuous servoing (follow).
+  bool sendTrajectoryNoWait(
+    const trajectory_msgs::msg::JointTrajectory & traj, std::string & error);
+
 private:
   trajectory_msgs::msg::JointTrajectory sliceFor(
     const ControllerConfig & ctrl,

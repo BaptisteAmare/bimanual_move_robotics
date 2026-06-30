@@ -128,6 +128,27 @@ bool MoveGroup::execute(
   return true;
 }
 
+bool MoveGroup::sendTrajectoryNoWait(
+  const trajectory_msgs::msg::JointTrajectory & traj, std::string & error)
+{
+  bool sent = false;
+  for (const auto & ctrl : config_.controllers) {
+    if (ctrl.type == "gripper_command") {continue;}
+    auto sliced = sliceFor(ctrl, traj);
+    if (sliced.joint_names.empty()) {continue;}
+    auto client = fjt_clients_.at(ctrl.name);
+    if (!client->action_server_is_ready()) {
+      error = "controller '" + ctrl.name + "' not ready";
+      continue;
+    }
+    FollowJointTrajectory::Goal goal;
+    goal.trajectory = sliced;
+    client->async_send_goal(goal);   // fire and forget; preempts any prior goal
+    sent = true;
+  }
+  return sent;
+}
+
 bool MoveGroup::executeGripper(
   double position, double max_effort, double timeout_s, std::string & error)
 {

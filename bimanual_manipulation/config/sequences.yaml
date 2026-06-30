@@ -42,6 +42,17 @@ sequences:
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 0.4}
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.20], cartesian_path: true}
 
+  # Track a moving TF frame, then move on. The follow step continuously servos
+  # the left tip to (moving_target * delta) and stops when the tip stays within
+  # 3 cm of the target for 1 s (object reached/stopped), or after 15 s, or when
+  # a true is published on /follow_stop. Then it proceeds to home.
+  track_object:
+    - {type: follow, group: left_arm, reference_frame: moving_target,
+       position: [0.0, 0.0, 0.10],
+       follow_position_tolerance: 0.03, follow_settle_time: 1.0,
+       follow_timeout: 15.0, follow_stop_topic: /follow_stop}
+    - {type: named, group: left_arm, named: home}
+
   # Straight-line reach with the left hand: 10 cm forward along the tool axis,
   # then back. A grasp step (gripper) would go between the two when a hand
   # controller is available.

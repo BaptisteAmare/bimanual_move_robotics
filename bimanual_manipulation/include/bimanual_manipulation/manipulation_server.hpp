@@ -19,6 +19,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <urdf/model.h>
@@ -73,6 +74,10 @@ private:
     double ascale, std::string & error);
 
   bool executeGripperStep(const GroupConfig & g, const MotionStep & step, std::string & error);
+
+  // Continuously servo the group tip to a (moving) TF frame until a stop
+  // condition (timeout / settle / stop topic) or the action is canceled.
+  bool executeFollow(const GroupConfig & g, const MotionStep & step, std::string & error);
   void stepScaling(const GroupConfig & g, const MotionStep & step, double & v, double & a) const;
 
   std::map<std::string, double> currentState() const;

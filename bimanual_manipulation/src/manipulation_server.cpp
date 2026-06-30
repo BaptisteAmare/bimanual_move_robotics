@@ -499,6 +499,109 @@ bool ManipulationServer::executeGripperStep(
     config_.defaults.execution_timeout, error);
 }
 
+bool ManipulationServer::executeFollow(
+  const GroupConfig & g, const MotionStep & step, std::string & error)
+{
+  if (!g.cartesian || !kinematics_.count(g.name)) {
+    error = "follow needs a Cartesian-capable group (base_link + tip_link)";
+    return false;
+  }
+  if (step.reference_frame.empty()) {
+    error = "follow requires a reference_frame";
+    return false;
+  }
+  auto kin = kinematics_.at(g.name);
+  const double rate = step.follow_rate > 0 ? step.follow_rate : 20.0;
+  const auto period = std::chrono::duration<double>(1.0 / rate);
+  const double horizon = std::max(2.0 / rate, 0.1);
+  const Eigen::Isometry3d delta = poseMsgToEigen(step.pose_target);
+  const std::set<std::string> active(g.joints.begin(), g.joints.end());
+
+  // Optional external stop signal (lets a sequence end the follow and proceed).
+  std::atomic<bool> stop_flag{false};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr stop_sub;
+  if (!step.follow_stop_topic.empty()) {
+    stop_sub = create_subscription<std_msgs::msg::Bool>(
+      step.follow_stop_topic, 10,
+      [&stop_flag](std_msgs::msg::Bool::SharedPtr m) {if (m->data) {stop_flag.store(true);}});
+  }
+
+  RCLCPP_INFO(
+    get_logger(), "[%s] following frame '%s' ...", g.name.c_str(),
+    step.reference_frame.c_str());
+
+  const rclcpp::Time t_start = now();
+  rclcpp::Time settled_since;
+  bool settling = false;
+  std::string ignore;
+
+  while (rclcpp::ok() && !cancel_requested_.load() && !stop_flag.load()) {
+    if (step.follow_timeout > 0 && (now() - t_start).seconds() >= step.follow_timeout) {break;}
+
+    std::vector<double> q;
+    if (!currentGroupValues(g, q, ignore)) {std::this_thread::sleep_for(period); continue;}
+
+    Eigen::Isometry3d goal;
+    try {
+      const auto tfm = tf_buffer_->lookupTransform(
+        g.base_link, step.reference_frame, tf2::TimePointZero, tf2::durationFromSec(0.05));
+      goal = tf2::transformToEigen(tfm) * delta;
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "[%s] waiting for frame '%s': %s",
+        g.name.c_str(), step.reference_frame.c_str(), ex.what());
+      std::this_thread::sleep_for(period);
+      continue;
+    }
+
+    std::vector<double> target;
+    if (!kin->ik(goal, q, target, /*limit_jump=*/true)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "[%s] follow target unreachable", g.name.c_str());
+      std::this_thread::sleep_for(period);
+      continue;
+    }
+
+    std::map<std::string, double> full = currentState();
+    for (size_t i = 0; i < g.joints.size(); ++i) {full[g.joints[i]] = target[i];}
+    if (!collision_.checkState(full, active)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "[%s] follow target in collision, holding",
+        g.name.c_str());
+      std::this_thread::sleep_for(period);
+      continue;
+    }
+
+    // Settled? (tip close enough to the target for long enough -> stop)
+    if (step.follow_position_tolerance > 0) {
+      Eigen::Isometry3d tip;
+      kin->fkTip(q, tip);
+      const double derr = (tip.translation() - goal.translation()).norm();
+      if (derr < step.follow_position_tolerance) {
+        if (!settling) {settling = true; settled_since = now();}
+        else if ((now() - settled_since).seconds() >= step.follow_settle_time) {break;}
+      } else {
+        settling = false;
+      }
+    }
+
+    // Stream a short trajectory toward the target (controller interpolates from
+    // the current state; preempts the previous goal).
+    trajectory_msgs::msg::JointTrajectory traj;
+    traj.joint_names = g.joints;
+    trajectory_msgs::msg::JointTrajectoryPoint pt;
+    pt.positions = target;
+    pt.time_from_start = rclcpp::Duration::from_seconds(horizon);
+    traj.points.push_back(pt);
+    move_groups_.at(g.name)->sendTrajectoryNoWait(traj, ignore);
+
+    std::this_thread::sleep_for(period);
+  }
+
+  RCLCPP_INFO(get_logger(), "[%s] follow finished", g.name.c_str());
+  return true;
+}
+
 bool ManipulationServer::executeStep(const MotionStep & step, std::string & error)
 {
   auto git = config_.groups.find(step.group);
@@ -510,6 +613,9 @@ bool ManipulationServer::executeStep(const MotionStep & step, std::string & erro
 
   if (step.type == MotionStep::TYPE_GRIPPER) {
     return executeGripperStep(g, step, error);
+  }
+  if (step.type == MotionStep::TYPE_FOLLOW) {
+    return executeFollow(g, step, error);
   }
 
   std::vector<double> start;
@@ -682,13 +788,17 @@ void ManipulationServer::seqAccepted(
         }
         const GroupConfig & g = git->second;
 
-        // Barriers: gripper actions and group changes close the current batch.
-        if (step.type == MotionStep::TYPE_GRIPPER || (batch_g && batch_g != &g)) {
+        // Only joint-space / Cartesian motions are concatenated; gripper and
+        // follow steps are barriers run on their own (and a group change also
+        // closes the current batch).
+        const bool batchable = step.type == MotionStep::TYPE_NAMED ||
+          step.type == MotionStep::TYPE_JOINT || step.type == MotionStep::TYPE_CARTESIAN;
+        if (!batchable || (batch_g && batch_g != &g)) {
           if (!flush(err)) {ok = false; break;}
         }
 
-        if (step.type == MotionStep::TYPE_GRIPPER) {
-          if (!executeGripperStep(g, step, err)) {ok = false; break;}
+        if (!batchable) {
+          if (!executeStep(step, err)) {ok = false; break;}
           result->completed_steps++;
           continue;
         }

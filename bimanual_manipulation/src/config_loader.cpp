@@ -168,6 +168,29 @@ MotionStep parseStep(const YAML::Node & s)
     step.type = MotionStep::TYPE_GRIPPER;
     step.named_target = s["named"].as<std::string>("");
     step.gripper_position = s["position"].as<double>(0.0);
+  } else if (type == "follow") {
+    step.type = MotionStep::TYPE_FOLLOW;
+    step.reference_frame = s["reference_frame"].as<std::string>("");
+    auto pos = asDoubleList(s["position"]);
+    if (pos.size() == 3) {
+      step.pose_target.position.x = pos[0];
+      step.pose_target.position.y = pos[1];
+      step.pose_target.position.z = pos[2];
+    }
+    auto quat = asDoubleList(s["orientation"]);  // [x, y, z, w]
+    if (quat.size() == 4) {
+      step.pose_target.orientation.x = quat[0];
+      step.pose_target.orientation.y = quat[1];
+      step.pose_target.orientation.z = quat[2];
+      step.pose_target.orientation.w = quat[3];
+    } else {
+      step.pose_target.orientation.w = 1.0;
+    }
+    step.follow_rate = s["follow_rate"].as<double>(0.0);
+    step.follow_timeout = s["follow_timeout"].as<double>(0.0);
+    step.follow_position_tolerance = s["follow_position_tolerance"].as<double>(0.0);
+    step.follow_settle_time = s["follow_settle_time"].as<double>(0.0);
+    step.follow_stop_topic = s["follow_stop_topic"].as<std::string>("");
   }
   return step;
 }

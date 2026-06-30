@@ -180,11 +180,19 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
 # close the left gripper
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 3, group: left_gripper, named_target: closed}}"
+
+# follow a (moving) TF frame, keeping the tip 10 cm above it, until canceled
+# (Ctrl-C on the goal) or a stop condition. -f shows live feedback.
+ros2 action send_goal -f /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 4, group: left_arm, reference_frame: moving_target,
+           pose_target: {position: {x: 0.0, y: 0.0, z: 0.10}, orientation: {w: 1.0}},
+           follow_position_tolerance: 0.03, follow_settle_time: 1.0, follow_timeout: 0.0}}"
 ```
 
-`step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper. For type `2`, the
-goal pose is taken in `reference_frame` (any TF frame) when set, else relative to
-the current tip when `relative:true`, else in the arm's base frame.
+`step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper, `4` follow. For
+type `2`, the goal pose is taken in `reference_frame` (any TF frame) when set,
+else relative to the current tip when `relative:true`, else in the arm's base
+frame.
 
 ### `~/execute_sequence` — `bimanual_msgs/action/ExecuteSequence`
 Run a predefined or inline sequence (approach → grasp → retreat …).
@@ -247,6 +255,25 @@ transient-local). Add a *MarkerArray* display in RViz to see them.
 | `cartesian_path` | `true` = straight line of the tip (precise approach/retreat); `false` = IK once + joint interpolation (robust, fast reach). |
 | `velocity_scaling` / `acceleration_scaling` | per-step speed (0 → group default). |
 | `blend_radius` | sequences only: round the corner with the next same-group step over ~this many rad of joint space (0 = pass through). |
+
+### Following a moving frame (type `4`, Follow)
+`TYPE_FOLLOW` continuously servos the group tip to `reference_frame *
+pose_target` (the delta is `pose_target`, in the frame). It tracks the frame as
+it moves — useful for grabbing a moving object. It runs as a unitary `~/move`
+goal (cancel to stop) and inside sequences, where it is a **barrier** (it is not
+concatenated; the sequence resumes once it stops). Stop conditions (set at least
+one when used in a sequence):
+
+| field | meaning |
+|---|---|
+| `follow_rate` | servo rate [Hz] (0 → 20). |
+| `follow_timeout` | stop after this long [s] (0 → none). |
+| `follow_position_tolerance` + `follow_settle_time` | stop once the tip stays within the tolerance [m] of the target for that long [s] (target reached / stopped). |
+| `follow_stop_topic` | a `std_msgs/Bool` topic; publishing `true` stops it (external control from a sequence). |
+
+Each cycle it looks up TF, solves IK from the current state, collision-checks the
+target (holds if blocked) and streams a short trajectory to the controller.
+Requires a Cartesian-capable group. See `track_object` in `sequences.yaml`.
 
 ---
 
