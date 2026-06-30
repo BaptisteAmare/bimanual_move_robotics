@@ -218,7 +218,7 @@ void TrajectoryGenerator::toTrajectory(
   //    current times, then stretches only the offending segments in one shot.
   //    A sharp corner (e.g. a reversal) thus slows the motion only near that
   //    corner, with no left-to-right bias. Iterate until it settles.
-  for (int iter = 0; iter < 20; ++iter) {
+  for (int iter = 0; motion.limit_acceleration && iter < 20; ++iter) {
     std::vector<double> scale(W, 1.0);
     bool changed = false;
     for (size_t s = 1; s + 1 < W; ++s) {

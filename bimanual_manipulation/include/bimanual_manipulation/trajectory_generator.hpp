@@ -33,6 +33,7 @@ struct MotionLimits
   double acceleration_scaling = 0.3;
   double joint_resolution = 0.02;         // joint-space validation step [rad]
   double cartesian_step = 0.005;          // Cartesian validation step [m]
+  bool limit_acceleration = true;         // false -> constant velocity-limited timing
 };
 
 // An ordered list of joint configurations (group order) forming a path.

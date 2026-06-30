@@ -23,6 +23,10 @@ planning:
   # these for snappier motion.
   default_joint_acceleration: 10.0   # rad/s^2
   execution_timeout: 10.0            # s, extra wait beyond the trajectory's own duration
+  # false -> constant (velocity-limited) speed across all steps, no slowdown at
+  # corners / direction changes. true -> smooth the acceleration (slows near
+  # sharp corners, gentler on the hardware).
+  acceleration_limiting: false
 
 groups:
 

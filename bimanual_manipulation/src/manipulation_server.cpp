@@ -385,6 +385,7 @@ bool ManipulationServer::runTrajectory(
   motion.acceleration_scaling = ascale;
   motion.joint_resolution = config_.collision.resolution;
   motion.cartesian_step = g.cartesian_step;
+  motion.limit_acceleration = config_.defaults.acceleration_limiting;
 
   trajectory_msgs::msg::JointTrajectory traj;
   TrajectoryGenerator::toTrajectory(g.joints, path, limits, motion, traj);

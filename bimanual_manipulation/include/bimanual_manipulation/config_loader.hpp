@@ -22,6 +22,9 @@ struct PlanningDefaults
   double joint_velocity = 1.0;        // fallback max joint velocity [rad/s]
   double joint_acceleration = 10.0;   // fallback max joint accel [rad/s^2]
   double execution_timeout = 10.0;    // extra wait beyond the trajectory duration [s]
+  // When false, trajectories are timed at constant (velocity-limited) speed
+  // with no acceleration smoothing - no slowdown at corners / reversals.
+  bool acceleration_limiting = true;
 };
 
 struct ManipulationConfig

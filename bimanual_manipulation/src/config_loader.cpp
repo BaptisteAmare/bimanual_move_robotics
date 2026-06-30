@@ -39,6 +39,8 @@ bool parseGroups(const YAML::Node & root, ManipulationConfig & out, std::string 
     d.joint_acceleration =
       planning["default_joint_acceleration"].as<double>(d.joint_acceleration);
     d.execution_timeout = planning["execution_timeout"].as<double>(d.execution_timeout);
+    d.acceleration_limiting =
+      planning["acceleration_limiting"].as<bool>(d.acceleration_limiting);
   }
 
   const YAML::Node groups = root["groups"];

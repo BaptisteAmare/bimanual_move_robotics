@@ -24,16 +24,14 @@ sequences:
   home:
     - {type: named, group: both_arms, named: home}
 
-  # Fluid chaining: consecutive steps of the SAME group are concatenated into a
-  # single continuous trajectory (no stop between steps). blend_radius rounds
-  # the corner with the next step (rad of joint space) for a smoother, more
-  # human-like motion. Gripper steps / group changes break the continuity.
+  # Consecutive steps of the SAME group are concatenated into a single
+  # continuous trajectory (no stop between steps). With acceleration_limiting
+  # false they run at constant velocity. blend_radius (optional, 0 here) would
+  # round the corners. Gripper steps / group changes break the continuity.
   wave_left:
-    - {type: named, group: left_arm, named: ready, blend_radius: 0.3}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.10, 0.0],
-       cartesian_path: true, blend_radius: 0.3}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.10, 0.0],
-       cartesian_path: true, blend_radius: 0.3}
+    - {type: named, group: left_arm, named: ready}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.10, 0.0], cartesian_path: true}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.10, 0.0], cartesian_path: true}
     - {type: named, group: left_arm, named: home}
 
   # Straight-line reach with the left hand: 10 cm forward along the tool axis,
