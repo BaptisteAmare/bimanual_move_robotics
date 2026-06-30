@@ -59,7 +59,8 @@ public:
   // Round the corners of a concatenated path at the given junction indices,
   // each over ~radii[k] (rad) on either side. Re-validates each modified window
   // and reverts it if blending would cause a collision.
-  static void blendJunctions(
+  // Returns the number of corners actually rounded.
+  static size_t blendJunctions(
     JointPath & path, const std::vector<size_t> & junctions,
     const std::vector<double> & radii, const StateValidator & valid);
 

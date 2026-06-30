@@ -577,7 +577,11 @@ void ManipulationServer::seqAccepted(
               for (size_t i = 0; i < jn.size(); ++i) {full[jn[i]] = q[i];}
               return collision_.checkState(full, active);
             };
-          TrajectoryGenerator::blendJunctions(batch_path, batch_junctions, batch_radii, valid);
+          const size_t nb = TrajectoryGenerator::blendJunctions(
+            batch_path, batch_junctions, batch_radii, valid);
+          RCLCPP_INFO(
+            get_logger(), "[%s] %zu step(s), %zu/%zu junction(s) blended",
+            batch_g->name.c_str(), static_cast<size_t>(batch_count), nb, batch_junctions.size());
           const bool r = runTrajectory(*batch_g, batch_path, batch_vmin, batch_amin, e);
           if (r) {result->completed_steps += batch_count;}
           batch_g = nullptr; batch_path.clear(); batch_junctions.clear();

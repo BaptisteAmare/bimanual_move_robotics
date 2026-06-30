@@ -99,12 +99,13 @@ bool TrajectoryGenerator::cartesianPath(
   return true;
 }
 
-void TrajectoryGenerator::blendJunctions(
+size_t TrajectoryGenerator::blendJunctions(
   JointPath & path, const std::vector<size_t> & junctions,
   const std::vector<double> & radii, const StateValidator & valid)
 {
-  if (path.size() < 3 || junctions.size() != radii.size()) {return;}
+  if (path.size() < 3 || junctions.size() != radii.size()) {return 0;}
   const size_t n = path.front().size();
+  size_t blended_count = 0;
 
   auto dist = [n](const std::vector<double> & a, const std::vector<double> & b) {
       double s = 0.0;
@@ -126,14 +127,19 @@ void TrajectoryGenerator::blendJunctions(
     while (b + 1 < hi_bound && dist(path[b + 1], path[j]) < blend_radius) {++b;}
     if (b <= a + 1) {continue;}
 
-    // Smooth the window (endpoints fixed) with a few moving-average passes.
-    JointPath blended(path.begin() + a, path.begin() + b + 1);
-    for (int pass = 0; pass < 4; ++pass) {
-      JointPath prev = blended;
-      for (size_t k = 1; k + 1 < blended.size(); ++k) {
-        for (size_t i = 0; i < n; ++i) {
-          blended[k][i] = 0.25 * prev[k - 1][i] + 0.5 * prev[k][i] + 0.25 * prev[k + 1][i];
-        }
+    // Replace the window by a quadratic Bezier that cuts the corner: endpoints
+    // W[a], W[b] are kept, the corner W[j] is the control point, so the curve
+    // rounds past the corner instead of going through it.
+    const std::vector<double> wa = path[a];
+    const std::vector<double> wj = path[j];
+    const std::vector<double> wb = path[b];
+    const double span = static_cast<double>(b - a);
+    JointPath blended(b - a + 1, std::vector<double>(n));
+    for (size_t k = 0; k <= b - a; ++k) {
+      const double t = static_cast<double>(k) / span;
+      const double c0 = (1 - t) * (1 - t), c1 = 2 * (1 - t) * t, c2 = t * t;
+      for (size_t i = 0; i < n; ++i) {
+        blended[k][i] = c0 * wa[i] + c1 * wj[i] + c2 * wb[i];
       }
     }
 
@@ -142,8 +148,10 @@ void TrajectoryGenerator::blendJunctions(
     for (size_t k = 1; k + 1 < blended.size() && ok; ++k) {ok = valid(blended[k]);}
     if (ok) {
       for (size_t k = 0; k < blended.size(); ++k) {path[a + k] = blended[k];}
+      ++blended_count;
     }
   }
+  return blended_count;
 }
 
 bool TrajectoryGenerator::planJoint(
