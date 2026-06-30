@@ -14,7 +14,11 @@
 
 collision:
   enabled: true
-  padding: 0.0          # uniform inflation of robot links [m] (safety margin)
+  padding: 0.0          # primitive-only geometry inflation [m] (no effect on meshes)
+  # Separation distance kept between any two elements (self + world objects,
+  # meshes included). The robot is rejected from getting closer than this to
+  # anything. 0 = plain contact test (fastest); 0.02-0.05 gives a safety gap.
+  margin: 0.0
   resolution: 0.02      # joint-space step between collision-checked waypoints [rad]
   # Simplify detailed collision meshes by clustering vertices on a grid of this
   # size [m]. Huge speedup on visual-quality meshes. Increase for more speed /

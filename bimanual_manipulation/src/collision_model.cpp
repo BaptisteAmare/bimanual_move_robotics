@@ -356,8 +356,26 @@ bool CollisionModel::checkStateImpl(
     objs.emplace_back(s.geom, Eigen::Isometry3d(tf[s.node] * s.origin));
   }
 
-  fcl::CollisionRequestd request;
-  fcl::CollisionResultd result;
+  const double margin = settings_.margin;
+
+  // True when the two objects touch (margin == 0) or are closer than `margin`.
+  // Uses an exact distance query when a margin is requested, so the separation
+  // applies to meshes as well as primitives.
+  auto tooClose = [&](fcl::CollisionObjectd * a, fcl::CollisionObjectd * b) -> bool {
+      if (margin > 0.0) {
+        if (a->getAABB().distance(b->getAABB()) > margin) {return false;}
+        fcl::DistanceRequestd dreq;
+        dreq.enable_nearest_points = false;
+        fcl::DistanceResultd dres;
+        fcl::distance(a, b, dreq, dres);
+        return dres.min_distance < margin;
+      }
+      if (!a->getAABB().overlap(b->getAABB())) {return false;}
+      fcl::CollisionRequestd creq;
+      fcl::CollisionResultd cres;
+      fcl::collide(a, b, creq, cres);
+      return cres.isCollision();
+    };
 
   // --- self collision ------------------------------------------------------
   for (const auto & pair : check_pairs_) {
@@ -367,12 +385,7 @@ bool CollisionModel::checkStateImpl(
     {
       continue;
     }
-    fcl::CollisionObjectd & a = objs[pair.first];
-    fcl::CollisionObjectd & b = objs[pair.second];
-    if (!a.getAABB().overlap(b.getAABB())) {continue;}
-    result.clear();
-    fcl::collide(&a, &b, request, result);
-    if (result.isCollision()) {return false;}
+    if (tooClose(&objs[pair.first], &objs[pair.second])) {return false;}
   }
 
   // --- world objects -------------------------------------------------------
@@ -395,10 +408,7 @@ bool CollisionModel::checkStateImpl(
           continue;
         }
       }
-      if (!wobj->getAABB().overlap(objs[i].getAABB())) {continue;}
-      result.clear();
-      fcl::collide(wobj, &objs[i], request, result);
-      if (result.isCollision()) {return false;}
+      if (tooClose(wobj, &objs[i])) {return false;}
     }
   }
 

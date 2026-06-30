@@ -103,6 +103,7 @@ void parseCollision(const YAML::Node & root, ManipulationConfig & out)
   auto & c = out.collision;
   c.enabled = col["enabled"].as<bool>(c.enabled);
   c.padding = col["padding"].as<double>(c.padding);
+  c.margin = col["margin"].as<double>(c.margin);
   c.resolution = col["resolution"].as<double>(c.resolution);
   c.mesh_decimation = col["mesh_decimation"].as<double>(c.mesh_decimation);
   const YAML::Node pairs = col["disabled_pairs"];
