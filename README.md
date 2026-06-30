@@ -194,6 +194,15 @@ ros2 action send_goal -f /bimanual_manipulation_server/execute_sequence \
   bimanual_msgs/action/ExecuteSequence "{sequence_name: both_ready}"
 ```
 
+**Fluid chaining.** Consecutive steps acting on the **same** move group are
+concatenated into a **single continuous trajectory** — the arm does not stop at
+each step's end, velocities flow through the via points. A gripper step or a
+group change is a barrier that closes the current trajectory. Per step,
+`blend_radius` (rad of joint space, sequences only) rounds the corner with the
+next step for smoother, more human-like motion (re-validated for collisions,
+reverted if unsafe). The combined trajectory uses the **slowest** scaling among
+its steps. See `wave_left` in `sequences.yaml`.
+
 ### `~/manage_collision_object` — `bimanual_msgs/srv/ManageCollisionObject`
 Add / remove / attach world collision objects (checked on every motion).
 
@@ -227,6 +236,7 @@ transient-local). Add a *MarkerArray* display in RViz to see them.
 | `relative` + `offset` (+ `offset_in_tip_frame`) | when no `reference_frame`: offset from the current tip (tip or base frame). |
 | `cartesian_path` | `true` = straight line of the tip (precise approach/retreat); `false` = IK once + joint interpolation (robust, fast reach). |
 | `velocity_scaling` / `acceleration_scaling` | per-step speed (0 → group default). |
+| `blend_radius` | sequences only: round the corner with the next same-group step over ~this many rad of joint space (0 = pass through). |
 
 ---
 

@@ -58,10 +58,22 @@ private:
 
   // --- core execution ------------------------------------------------------
   bool executeStep(const MotionStep & step, std::string & error);
-  bool executeNamedOrJoint(
-    const GroupConfig & g, const std::vector<double> & target, double vscale,
+
+  // Geometry of one motion step (named/joint/cartesian), starting at `start`
+  // (group order), appended to `path`. Does not move the robot. Used both for
+  // single moves and for concatenating a sequence into one fluid trajectory.
+  bool computeStepPath(
+    const GroupConfig & g, const MotionStep & step, const std::vector<double> & start,
+    const std::map<std::string, double> & base_state, JointPath & path,
+    std::string & error);
+
+  // Time-parameterize a joint path and run it on the group's controllers.
+  bool runTrajectory(
+    const GroupConfig & g, const JointPath & path, double vscale,
     double ascale, std::string & error);
-  bool executeCartesian(const GroupConfig & g, const MotionStep & step, std::string & error);
+
+  bool executeGripperStep(const GroupConfig & g, const MotionStep & step, std::string & error);
+  void stepScaling(const GroupConfig & g, const MotionStep & step, double & v, double & a) const;
 
   std::map<std::string, double> currentState() const;
   bool currentGroupValues(const GroupConfig & g, std::vector<double> & q, std::string & error) const;

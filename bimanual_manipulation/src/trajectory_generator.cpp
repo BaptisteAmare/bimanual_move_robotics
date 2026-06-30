@@ -14,15 +14,13 @@ constexpr double kMinSegmentTime = 1e-3;     // [s]
 constexpr double kCartesianAngularStep = 0.05;  // [rad] per Cartesian waypoint
 }  // namespace
 
-bool TrajectoryGenerator::planJoint(
-  const std::vector<std::string> & joints,
+bool TrajectoryGenerator::jointPath(
   const std::vector<double> & start, const std::vector<double> & goal,
-  const Limits & limits, const MotionLimits & motion,
-  const StateValidator & valid,
-  trajectory_msgs::msg::JointTrajectory & traj, std::string & error)
+  const MotionLimits & motion, const StateValidator & valid,
+  JointPath & path, std::string & error)
 {
-  const size_t n = joints.size();
-  if (start.size() != n || goal.size() != n) {
+  const size_t n = start.size();
+  if (goal.size() != n) {
     error = "joint vector size mismatch";
     return false;
   }
@@ -35,8 +33,8 @@ bool TrajectoryGenerator::planJoint(
   size_t steps = static_cast<size_t>(std::ceil(max_delta / std::max(motion.joint_resolution, 1e-4)));
   steps = std::clamp<size_t>(steps, 1, 5000);
 
-  std::vector<std::vector<double>> waypoints;
-  waypoints.reserve(steps + 1);
+  path.clear();
+  path.reserve(steps + 1);
   for (size_t s = 0; s <= steps; ++s) {
     const double f = static_cast<double>(s) / static_cast<double>(steps);
     std::vector<double> q(n);
@@ -47,20 +45,16 @@ bool TrajectoryGenerator::planJoint(
       error = "collision detected along joint path at fraction " + std::to_string(f);
       return false;
     }
-    waypoints.push_back(std::move(q));
+    path.push_back(std::move(q));
   }
-
-  timeParameterize(joints, waypoints, limits, motion, traj);
   return true;
 }
 
-bool TrajectoryGenerator::planCartesian(
-  const std::vector<std::string> & joints, const GroupKinematics & kin,
-  const std::vector<double> & start, const Eigen::Isometry3d & start_pose,
-  const Eigen::Isometry3d & goal_pose,
-  const Limits & limits, const MotionLimits & motion,
-  const StateValidator & valid,
-  trajectory_msgs::msg::JointTrajectory & traj, std::string & error)
+bool TrajectoryGenerator::cartesianPath(
+  const GroupKinematics & kin, const std::vector<double> & start,
+  const Eigen::Isometry3d & start_pose, const Eigen::Isometry3d & goal_pose,
+  const MotionLimits & motion, const StateValidator & valid,
+  JointPath & path, std::string & error)
 {
   const Eigen::Vector3d p0 = start_pose.translation();
   const Eigen::Vector3d p1 = goal_pose.translation();
@@ -77,8 +71,8 @@ bool TrajectoryGenerator::planCartesian(
       angle / kCartesianAngularStep)));
   steps = std::clamp<size_t>(steps, 1, 5000);
 
-  std::vector<std::vector<double>> waypoints;
-  waypoints.reserve(steps + 1);
+  path.clear();
+  path.reserve(steps + 1);
   std::vector<double> seed = start;
 
   for (size_t s = 0; s <= steps; ++s) {
@@ -100,16 +94,89 @@ bool TrajectoryGenerator::planCartesian(
       return false;
     }
     seed = q;
-    waypoints.push_back(std::move(q));
+    path.push_back(std::move(q));
   }
-
-  timeParameterize(joints, waypoints, limits, motion, traj);
   return true;
 }
 
-void TrajectoryGenerator::timeParameterize(
+void TrajectoryGenerator::blendJunctions(
+  JointPath & path, const std::vector<size_t> & junctions,
+  const std::vector<double> & radii, const StateValidator & valid)
+{
+  if (path.size() < 3 || junctions.size() != radii.size()) {return;}
+  const size_t n = path.front().size();
+
+  auto dist = [n](const std::vector<double> & a, const std::vector<double> & b) {
+      double s = 0.0;
+      for (size_t i = 0; i < n; ++i) {const double d = a[i] - b[i]; s += d * d;}
+      return std::sqrt(s);
+    };
+
+  for (size_t ji = 0; ji < junctions.size(); ++ji) {
+    const double blend_radius = radii[ji];
+    if (blend_radius <= 0.0) {continue;}
+    const size_t j = junctions[ji];
+    if (j == 0 || j + 1 >= path.size()) {continue;}
+    const size_t lo_bound = (ji == 0) ? 0 : junctions[ji - 1];
+    const size_t hi_bound = (ji + 1 < junctions.size()) ? junctions[ji + 1] : path.size() - 1;
+
+    // Window of waypoints within blend_radius of the junction on each side.
+    size_t a = j, b = j;
+    while (a > lo_bound + 1 && dist(path[a - 1], path[j]) < blend_radius) {--a;}
+    while (b + 1 < hi_bound && dist(path[b + 1], path[j]) < blend_radius) {++b;}
+    if (b <= a + 1) {continue;}
+
+    // Smooth the window (endpoints fixed) with a few moving-average passes.
+    JointPath blended(path.begin() + a, path.begin() + b + 1);
+    for (int pass = 0; pass < 4; ++pass) {
+      JointPath prev = blended;
+      for (size_t k = 1; k + 1 < blended.size(); ++k) {
+        for (size_t i = 0; i < n; ++i) {
+          blended[k][i] = 0.25 * prev[k - 1][i] + 0.5 * prev[k][i] + 0.25 * prev[k + 1][i];
+        }
+      }
+    }
+
+    // Keep the blend only if every modified waypoint stays collision free.
+    bool ok = true;
+    for (size_t k = 1; k + 1 < blended.size() && ok; ++k) {ok = valid(blended[k]);}
+    if (ok) {
+      for (size_t k = 0; k < blended.size(); ++k) {path[a + k] = blended[k];}
+    }
+  }
+}
+
+bool TrajectoryGenerator::planJoint(
   const std::vector<std::string> & joints,
-  const std::vector<std::vector<double>> & waypoints,
+  const std::vector<double> & start, const std::vector<double> & goal,
+  const Limits & limits, const MotionLimits & motion,
+  const StateValidator & valid,
+  trajectory_msgs::msg::JointTrajectory & traj, std::string & error)
+{
+  JointPath path;
+  if (!jointPath(start, goal, motion, valid, path, error)) {return false;}
+  toTrajectory(joints, path, limits, motion, traj);
+  return true;
+}
+
+bool TrajectoryGenerator::planCartesian(
+  const std::vector<std::string> & joints, const GroupKinematics & kin,
+  const std::vector<double> & start, const Eigen::Isometry3d & start_pose,
+  const Eigen::Isometry3d & goal_pose,
+  const Limits & limits, const MotionLimits & motion,
+  const StateValidator & valid,
+  trajectory_msgs::msg::JointTrajectory & traj, std::string & error)
+{
+  JointPath path;
+  if (!cartesianPath(kin, start, start_pose, goal_pose, motion, valid, path, error)) {
+    return false;
+  }
+  toTrajectory(joints, path, limits, motion, traj);
+  return true;
+}
+
+void TrajectoryGenerator::toTrajectory(
+  const std::vector<std::string> & joints, const JointPath & waypoints,
   const Limits & limits, const MotionLimits & motion,
   trajectory_msgs::msg::JointTrajectory & traj)
 {

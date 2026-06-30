@@ -54,3 +54,9 @@ float64 gripper_position
 # --- motion shaping (0 -> use the group's configured default) --------------
 float64 velocity_scaling
 float64 acceleration_scaling
+
+# Junction blending (sequences only): when > 0, the corner between this step
+# and the next step of the SAME move group is rounded over roughly this radius
+# in joint space [rad], instead of coming to the exact junction. Larger =
+# rounder / more fluid, but deviates more from the via point. 0 = pass through.
+float64 blend_radius
