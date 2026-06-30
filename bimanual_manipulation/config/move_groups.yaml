@@ -27,6 +27,12 @@ planning:
   # corners / direction changes. true -> smooth the acceleration (slows near
   # sharp corners, gentler on the hardware).
   acceleration_limiting: false
+  # When a straight-line joint move is blocked by an obstacle, fall back to an
+  # RRT-Connect planner that routes around it (self + world objects). Cartesian
+  # straight-line moves (cartesian_path: true) are never re-routed.
+  avoid_obstacles: true
+  rrt_max_iterations: 4000
+  rrt_step: 0.25                     # rad, tree extension step
 
 groups:
 

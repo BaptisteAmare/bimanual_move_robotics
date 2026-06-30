@@ -108,7 +108,8 @@ private:
 
   std::map<std::string, std::shared_ptr<GroupKinematics>> kinematics_;
   std::map<std::string, std::shared_ptr<MoveGroup>> move_groups_;
-  std::map<std::string, std::pair<double, double>> joint_limits_;  // name -> (vmax, amax)
+  std::map<std::string, std::pair<double, double>> joint_limits_;      // name -> (vmax, amax)
+  std::map<std::string, std::pair<double, double>> joint_pos_limits_;  // name -> (lower, upper)
 
   mutable std::mutex state_mutex_;
   std::map<std::string, double> joint_state_;

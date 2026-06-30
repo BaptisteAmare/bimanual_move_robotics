@@ -55,6 +55,7 @@ add_library(${PROJECT_NAME}_core SHARED
   src/kinematics.cpp
   src/collision_model.cpp
   src/trajectory_generator.cpp
+  src/planner.cpp
   src/move_group.cpp
   src/config_loader.cpp
   src/manipulation_server.cpp

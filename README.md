@@ -252,11 +252,15 @@ transient-local). Add a *MarkerArray* display in RViz to see them.
 
 ## Notes & limitations
 
-* Motions are **straight lines** (joint or Cartesian). There is no obstacle
-  *avoidance* planner — if the direct path is blocked the move is **rejected**
-  (reported as a collision), it is not routed around the obstacle. This is the
-  intended trade-off for speed; add intermediate waypoints / sequence steps to
-  go around clutter.
+* Joint-space moves (named / joint / pose targets with `cartesian_path:false`)
+  try a **straight line** first; if it is blocked, they fall back to an
+  **RRT-Connect** planner that routes around the obstacle (self + world),
+  controlled by `planning.avoid_obstacles` (default true), `rrt_max_iterations`
+  and `rrt_step`. The fast straight line is used whenever it is free, so you
+  only pay planning time when a detour is actually needed.
+* **Cartesian straight-line** moves (`cartesian_path:true`) are never re-routed
+  — they must stay straight, so a blocked one is **rejected** (use them for
+  precise approach/retreat, not for traversing clutter).
 * `collision.margin` uses an exact distance query, which is heavier than the
   plain contact test; with detailed meshes keep `mesh_decimation` on. Mesh
   decimation clusters vertices and can shrink a shape by ~one voxel — combine a

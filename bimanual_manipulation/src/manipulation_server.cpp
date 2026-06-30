@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <functional>
 #include <set>
@@ -12,6 +13,7 @@
 #include <srdfdom/model.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 
+#include "bimanual_manipulation/planner.hpp"
 #include "bimanual_manipulation/trajectory_generator.hpp"
 
 using namespace std::chrono_literals;
@@ -152,6 +154,15 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
       vmax = kv.second->limits->velocity;
     }
     joint_limits_[kv.first] = {vmax, config_.defaults.joint_acceleration};
+
+    // Position limits (for sampling-based planning). Continuous / unlimited
+    // joints fall back to a bounded range so the sampler stays finite.
+    double lo = -M_PI, hi = M_PI;
+    if (kv.second && kv.second->limits && kv.second->type != urdf::Joint::CONTINUOUS) {
+      lo = kv.second->limits->lower;
+      hi = kv.second->limits->upper;
+    }
+    joint_pos_limits_[kv.first] = {lo, hi};
   }
 
   // Build kinematics + controller handles per group.
@@ -303,6 +314,58 @@ bool ManipulationServer::computeStepPath(
   motion.joint_resolution = config_.collision.resolution;
   motion.cartesian_step = g.cartesian_step;
 
+  // Straight line in joint space; if blocked and avoidance is on, route around
+  // the obstacle with RRT-Connect and densify the resulting detour.
+  auto jointWithFallback = [&](const std::vector<double> & target) -> bool {
+      if (TrajectoryGenerator::jointPath(start, target, motion, valid, path, error)) {
+        return true;
+      }
+      if (!config_.defaults.avoid_obstacles) {return false;}
+
+      std::vector<std::pair<double, double>> bounds;
+      bounds.reserve(g.joints.size());
+      for (const auto & jn : g.joints) {
+        auto it = joint_pos_limits_.find(jn);
+        bounds.push_back(
+          it != joint_pos_limits_.end() ? it->second : std::make_pair(-M_PI, M_PI));
+      }
+
+      RRTConnectOptions opt;
+      opt.edge_resolution = config_.collision.resolution;
+      opt.max_iterations = config_.defaults.rrt_max_iterations;
+      opt.step_size = config_.defaults.rrt_step;
+
+      RCLCPP_INFO(
+        get_logger(), "[%s] straight path blocked, planning around obstacles ...",
+        g.name.c_str());
+      JointPath sparse;
+      std::string perr;
+      if (!planRRTConnect(bounds, start, target, valid, opt, sparse, perr)) {
+        error = "could not plan a collision-free path: " + perr;
+        return false;
+      }
+
+      // Densify the sparse detour at the collision resolution for smooth timing.
+      path.clear();
+      path.push_back(sparse.front());
+      for (size_t s = 1; s < sparse.size(); ++s) {
+        const auto & a = sparse[s - 1];
+        const auto & b = sparse[s];
+        double d = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {const double e = b[i] - a[i]; d += e * e;}
+        d = std::sqrt(d);
+        const int m = std::max(1, static_cast<int>(std::ceil(d / std::max(motion.joint_resolution, 1e-4))));
+        for (int k = 1; k <= m; ++k) {
+          const double f = static_cast<double>(k) / m;
+          std::vector<double> q(a.size());
+          for (size_t i = 0; i < a.size(); ++i) {q[i] = a[i] + f * (b[i] - a[i]);}
+          path.push_back(std::move(q));
+        }
+      }
+      RCLCPP_INFO(get_logger(), "[%s] planned a detour (%zu waypoints)", g.name.c_str(), path.size());
+      return true;
+    };
+
   // Resolve a joint-space goal (named / joint / cartesian-as-joint-goto) or a
   // Cartesian straight line, all starting at `start`.
   if (step.type == MotionStep::TYPE_NAMED || step.type == MotionStep::TYPE_JOINT) {
@@ -322,7 +385,7 @@ bool ManipulationServer::computeStepPath(
         g.name + "' expects " + std::to_string(g.joints.size());
       return false;
     }
-    return TrajectoryGenerator::jointPath(start, target, motion, valid, path, error);
+    return jointWithFallback(target);
   }
 
   if (step.type == MotionStep::TYPE_CARTESIAN) {
@@ -366,7 +429,7 @@ bool ManipulationServer::computeStepPath(
       error = "IK failed for the requested pose target (group '" + g.name + "')";
       return false;
     }
-    return TrajectoryGenerator::jointPath(start, target, motion, valid, path, error);
+    return jointWithFallback(target);
   }
 
   error = "step type " + std::to_string(step.type) + " is not a motion step";

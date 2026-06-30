@@ -1,7 +1,8 @@
 // Fast trajectory generation: dense linear interpolation in joint or Cartesian
 // space, every waypoint validated against the collision model, then velocity /
-// acceleration limited time parameterization. No sampling-based planner is
-// involved, which keeps both compute and execution short.
+// acceleration limited time parameterization. The straight line is the fast
+// path; routing around obstacles (when it is blocked) is handled separately by
+// the RRT-Connect planner (see planner.hpp).
 #ifndef BIMANUAL_MANIPULATION_TRAJECTORY_GENERATOR_HPP
 #define BIMANUAL_MANIPULATION_TRAJECTORY_GENERATOR_HPP
 

@@ -25,6 +25,12 @@ struct PlanningDefaults
   // When false, trajectories are timed at constant (velocity-limited) speed
   // with no acceleration smoothing - no slowdown at corners / reversals.
   bool acceleration_limiting = true;
+  // When true, a blocked straight-line joint move falls back to an RRT-Connect
+  // planner that routes around obstacles (self + world). Cartesian straight-line
+  // moves are never re-routed (they must stay straight).
+  bool avoid_obstacles = true;
+  int rrt_max_iterations = 4000;
+  double rrt_step = 0.25;             // [rad]
 };
 
 struct ManipulationConfig
