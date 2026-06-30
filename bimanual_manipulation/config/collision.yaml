@@ -1,21 +1,36 @@
 # ---------------------------------------------------------------------------
-# Collision checking settings.
+# Collision checking settings (FCL).
 #
-# Self-collision and collisions against world objects are checked with FCL.
 # Collisions between a link and its direct parent (and shapes on the same link)
-# are always ignored. List here any other pair that should be ignored, exactly
-# like an SRDF "disable_collisions" block (e.g. links that are permanently in
-# contact, or shapes that overlap by design).
+# are always ignored. Add here any other pair that should be ignored, like an
+# SRDF "disable_collisions" block.
+#
+# TIP for first bring-up: if every motion is rejected as "collision detected"
+# while the robot clearly is not colliding, it usually means two non-adjacent
+# links overlap by design at the home pose. Either add the pair below, or set
+# `enabled: false` to validate the motion pipeline first, then re-enable and
+# tune the pairs.
 # ---------------------------------------------------------------------------
 
 collision:
   enabled: true
-  padding: 0.0          # uniform inflation of robot links [m] (safety margin)
+  padding: 0.0          # primitive-only geometry inflation [m] (no effect on meshes)
+  # Separation distance kept between any two elements (self + world objects,
+  # meshes included). The robot is rejected from getting closer than this to
+  # anything. 0 = plain contact test (fastest); 0.02-0.05 gives a safety gap.
+  margin: 0.0
   resolution: 0.02      # joint-space step between collision-checked waypoints [rad]
+  # Simplify detailed collision meshes by clustering vertices on a grid of this
+  # size [m]. Huge speedup on visual-quality meshes. Increase for more speed /
+  # coarser shape, set to 0.0 to keep the full-resolution meshes.
+  mesh_decimation: 0.02
 
   disabled_pairs:
-    - [torso_link, left_shoulder_link]
-    - [torso_link, right_shoulder_link]
-    - [left_wrist_link, left_gripper_link]
-    - [right_wrist_link, right_gripper_link]
-    # - [base_link, torso_link]
+    - [torso_link, L_shoulder_pitch_link]
+    - [torso_link, R_shoulder_pitch_link]
+    - [torso_link, head_pitch_link]
+    - [torso_link, head_yaw_link]
+    # Arms vs torso/waist are common offenders near the home pose; uncomment as
+    # needed once you see which pairs trip:
+    # - [waist_pitch_link, L_shoulder_pitch_link]
+    # - [waist_pitch_link, R_shoulder_pitch_link]

@@ -39,6 +39,8 @@ bool parseGroups(const YAML::Node & root, ManipulationConfig & out, std::string 
     d.joint_acceleration =
       planning["default_joint_acceleration"].as<double>(d.joint_acceleration);
     d.execution_timeout = planning["execution_timeout"].as<double>(d.execution_timeout);
+    d.acceleration_limiting =
+      planning["acceleration_limiting"].as<bool>(d.acceleration_limiting);
   }
 
   const YAML::Node groups = root["groups"];
@@ -103,7 +105,9 @@ void parseCollision(const YAML::Node & root, ManipulationConfig & out)
   auto & c = out.collision;
   c.enabled = col["enabled"].as<bool>(c.enabled);
   c.padding = col["padding"].as<double>(c.padding);
+  c.margin = col["margin"].as<double>(c.margin);
   c.resolution = col["resolution"].as<double>(c.resolution);
+  c.mesh_decimation = col["mesh_decimation"].as<double>(c.mesh_decimation);
   const YAML::Node pairs = col["disabled_pairs"];
   if (pairs && pairs.IsSequence()) {
     for (const auto & p : pairs) {
@@ -132,6 +136,8 @@ MotionStep parseStep(const YAML::Node & s)
     step.type = MotionStep::TYPE_CARTESIAN;
     step.relative = s["relative"].as<bool>(false);
     step.offset_in_tip_frame = s["offset_in_tip_frame"].as<bool>(false);
+    step.reference_frame = s["reference_frame"].as<std::string>("");
+    step.cartesian_path = s["cartesian_path"].as<bool>(false);
     auto off = asDoubleList(s["offset"]);
     if (off.size() == 3) {
       step.offset.x = off[0];

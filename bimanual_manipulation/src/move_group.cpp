@@ -131,7 +131,6 @@ bool MoveGroup::execute(
 bool MoveGroup::executeGripper(
   double position, double max_effort, double timeout_s, std::string & error)
 {
-  using GoalHandle = rclcpp_action::ClientGoalHandle<GripperCommand>;
   if (gripper_clients_.empty()) {
     error = "group '" + config_.name + "' has no gripper_command controller";
     return false;

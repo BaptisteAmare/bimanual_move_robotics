@@ -36,6 +36,14 @@ public:
   // name -> value; any joint omitted is treated as 0.
   bool checkState(const std::map<std::string, double> & joint_values) const;
 
+  // Same, but only checks pairs involving a link that actually moves with one
+  // of `active_joints` (links whose transform does not depend on those joints
+  // are assumed unchanged, so static-vs-static pairs are skipped). This makes
+  // validating a single arm's motion much cheaper.
+  bool checkState(
+    const std::map<std::string, double> & joint_values,
+    const std::set<std::string> & active_joints) const;
+
   // --- world object management (thread-safe) -------------------------------
   // Free object, pose expressed in the planning (root) frame.
   bool addObject(
@@ -49,8 +57,30 @@ public:
   bool removeObject(const std::string & id);
   void clearObjects();
 
+  // Snapshot of the current world objects, for visualization.
+  struct ObjectInfo
+  {
+    std::string id;
+    shape_msgs::msg::SolidPrimitive primitive;
+    Eigen::Isometry3d pose;        // root frame, or link frame if attached
+    std::string attached_link;     // empty when free in the world
+  };
+  std::vector<ObjectInfo> objects() const;
+
   const std::string & rootFrame() const {return root_frame_;}
   bool enabled() const {return settings_.enabled;}
+
+  // Diagnostics (valid after init()).
+  size_t shapeCount() const {return shapes_.size();}
+  size_t checkPairCount() const {return check_pairs_.size();}
+  size_t visualFallbackCount() const {return visual_fallback_links_;}
+  size_t meshTotal() const {return meshes_total_;}
+  size_t meshFailed() const {return meshes_failed_;}
+  size_t meshTriangles() const {return mesh_triangles_;}
+  const std::vector<std::string> & linksWithoutCollision() const
+  {
+    return links_without_collision_;
+  }
 
 private:
   // A single rigid link in the kinematic walk.
@@ -78,6 +108,8 @@ private:
     std::shared_ptr<fcl::CollisionObjectd> obj;
     Eigen::Isometry3d pose;          // in root frame (or link frame if attached)
     int attached_node = -1;          // -1 when free in the world
+    shape_msgs::msg::SolidPrimitive primitive;  // kept for visualization
+    std::string attached_link;
   };
 
   std::shared_ptr<fcl::CollisionGeometryd> makeGeometry(
@@ -87,12 +119,21 @@ private:
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
 
+  bool checkStateImpl(
+    const std::map<std::string, double> & joint_values,
+    const std::set<std::string> * active_joints) const;
+
   CollisionSettings settings_;
   std::string root_frame_;
 
   std::vector<LinkNode> nodes_;
   std::map<std::string, int> node_index_;
   std::vector<LinkShape> shapes_;
+  std::vector<std::string> links_without_collision_;
+  size_t visual_fallback_links_ = 0;
+  size_t meshes_total_ = 0;
+  size_t meshes_failed_ = 0;
+  size_t mesh_triangles_ = 0;
 
   // Precomputed list of shape index pairs that must be tested for
   // self-collision (i.e. all pairs except the allowed/adjacent ones).

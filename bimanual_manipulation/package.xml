@@ -24,8 +24,12 @@
   <depend>shape_msgs</depend>
   <depend>trajectory_msgs</depend>
   <depend>control_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>urdf</depend>
+  <depend>srdfdom</depend>
   <depend>kdl_parser</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_eigen</depend>
   <depend>orocos_kdl_vendor</depend>
   <depend>resource_retriever</depend>
   <depend>bimanual_msgs</depend>

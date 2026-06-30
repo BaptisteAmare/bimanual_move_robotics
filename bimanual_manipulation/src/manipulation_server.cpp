@@ -1,10 +1,16 @@
 #include "bimanual_manipulation/manipulation_server.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <functional>
+#include <set>
+#include <sstream>
 #include <thread>
 
 #include <kdl_parser/kdl_parser.hpp>
+#include <srdfdom/model.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 
 #include "bimanual_manipulation/trajectory_generator.hpp"
 
@@ -19,11 +25,13 @@ ManipulationServer::ManipulationServer(const rclcpp::NodeOptions & options)
 : rclcpp::Node("bimanual_manipulation_server", options)
 {
   declare_parameter<std::string>("robot_description", "");
+  declare_parameter<std::string>("robot_description_file", "");
   declare_parameter<std::string>("robot_description_topic", "/robot_description");
   declare_parameter<std::string>("move_groups_config", "");
   declare_parameter<std::string>("named_poses_config", "");
   declare_parameter<std::string>("collision_config", "");
   declare_parameter<std::string>("sequences_config", "");
+  declare_parameter<std::string>("srdf_config", "");
   declare_parameter<double>("gripper_max_effort", 50.0);
 }
 
@@ -32,6 +40,21 @@ bool ManipulationServer::loadUrdf(std::string & urdf_xml)
   urdf_xml = get_parameter("robot_description").as_string();
   if (!urdf_xml.empty()) {
     return true;
+  }
+
+  // A file on disk (e.g. the full description URDF with collision meshes) takes
+  // priority over the live topic, which may be a kinematics-only URDF.
+  const std::string file = get_parameter("robot_description_file").as_string();
+  if (!file.empty()) {
+    std::ifstream in(file);
+    if (!in) {
+      RCLCPP_ERROR(get_logger(), "Cannot open robot_description_file '%s'", file.c_str());
+      return false;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    urdf_xml = ss.str();
+    return !urdf_xml.empty();
   }
 
   const std::string topic = get_parameter("robot_description_topic").as_string();
@@ -68,8 +91,57 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
     error = "failed to build KDL tree from URDF";
     return false;
   }
+
+  // Merge the MoveIt SRDF allowed-collision matrix, if provided.
+  const std::string srdf_path = get_parameter("srdf_config").as_string();
+  if (!srdf_path.empty()) {
+    srdf::Model srdf;
+    if (srdf.initFile(urdf_model_, srdf_path)) {
+      const auto & pairs = srdf.getDisabledCollisionPairs();
+      for (const auto & p : pairs) {
+        config_.collision.disabled_pairs.emplace_back(p.link1_, p.link2_);
+      }
+      RCLCPP_INFO(
+        get_logger(), "Loaded %zu disabled collision pairs from SRDF '%s'.",
+        pairs.size(), srdf_path.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "Could not parse SRDF '%s'.", srdf_path.c_str());
+    }
+  }
+
   if (!collision_.init(urdf_model_, config_.collision, error)) {
     return false;
+  }
+
+  RCLCPP_INFO(
+    get_logger(), "Collision model: %zu shapes, %zu link pairs checked.",
+    collision_.shapeCount(), collision_.checkPairCount());
+  if (collision_.visualFallbackCount() > 0) {
+    RCLCPP_INFO(
+      get_logger(), "%zu link(s) had no <collision> and use <visual> geometry instead.",
+      collision_.visualFallbackCount());
+  }
+  if (collision_.meshTotal() > 0) {
+    RCLCPP_INFO(
+      get_logger(), "Meshes: %zu loaded, %zu failed, %zu collision triangles total.",
+      collision_.meshTotal() - collision_.meshFailed(), collision_.meshFailed(),
+      collision_.meshTriangles());
+  }
+  if (collision_.shapeCount() == 0) {
+    RCLCPP_WARN(
+      get_logger(),
+      "No collision geometry at all - self-collision checking is INEFFECTIVE. "
+      "Point 'robot_description_file' at a URDF that includes <collision>/<visual> "
+      "meshes (e.g. your full robot_description), not a kinematics-only URDF.");
+  }
+  const auto & missing = collision_.linksWithoutCollision();
+  if (!missing.empty()) {
+    std::string list;
+    for (const auto & l : missing) {list += l + " ";}
+    RCLCPP_WARN(
+      get_logger(),
+      "%zu link(s) have NO collision geometry (self-collision NOT checked for "
+      "them): %s", missing.size(), list.c_str());
   }
 
   // Per-joint velocity / acceleration limits (acceleration is rarely in the
@@ -123,6 +195,9 @@ bool ManipulationServer::initialize()
     return false;
   }
 
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
     "/joint_states", rclcpp::SensorDataQoS(),
     std::bind(&ManipulationServer::onJointState, this, _1));
@@ -142,6 +217,11 @@ bool ManipulationServer::initialize()
   collision_service_ = create_service<ManageCollisionObject>(
     "~/manage_collision_object",
     std::bind(&ManipulationServer::manageCollisionObject, this, _1, _2));
+
+  marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/collision_objects", rclcpp::QoS(1).transient_local());
+  marker_timer_ = create_wall_timer(
+    std::chrono::milliseconds(500), std::bind(&ManipulationServer::publishMarkers, this));
 
   RCLCPP_INFO(
     get_logger(), "Bimanual manipulation server ready (%zu groups, %zu sequences).",
@@ -199,18 +279,105 @@ void ManipulationServer::makeLimits(const GroupConfig & g, Limits & limits) cons
 
 // --- execution -------------------------------------------------------------
 
-bool ManipulationServer::executeNamedOrJoint(
-  const GroupConfig & g, const std::vector<double> & target, double vscale,
-  double ascale, std::string & error)
+void ManipulationServer::stepScaling(
+  const GroupConfig & g, const MotionStep & step, double & v, double & a) const
 {
-  std::vector<double> start;
-  if (!currentGroupValues(g, start, error)) {return false;}
-  if (target.size() != g.joints.size()) {
-    error = "target has " + std::to_string(target.size()) + " values, group '" +
-      g.name + "' expects " + std::to_string(g.joints.size());
-    return false;
+  v = step.velocity_scaling > 0 ? step.velocity_scaling : g.default_velocity_scaling;
+  a = step.acceleration_scaling > 0 ? step.acceleration_scaling : g.default_acceleration_scaling;
+}
+
+bool ManipulationServer::computeStepPath(
+  const GroupConfig & g, const MotionStep & step, const std::vector<double> & start,
+  const std::map<std::string, double> & base_state, JointPath & path,
+  std::string & error)
+{
+  const std::vector<std::string> joints = g.joints;
+  const std::set<std::string> active(g.joints.begin(), g.joints.end());
+  StateValidator valid = [this, joints, active, base_state](const std::vector<double> & q) {
+      std::map<std::string, double> full = base_state;
+      for (size_t i = 0; i < joints.size(); ++i) {full[joints[i]] = q[i];}
+      return collision_.checkState(full, active);
+    };
+
+  MotionLimits motion;
+  motion.joint_resolution = config_.collision.resolution;
+  motion.cartesian_step = g.cartesian_step;
+
+  // Resolve a joint-space goal (named / joint / cartesian-as-joint-goto) or a
+  // Cartesian straight line, all starting at `start`.
+  if (step.type == MotionStep::TYPE_NAMED || step.type == MotionStep::TYPE_JOINT) {
+    std::vector<double> target;
+    if (step.type == MotionStep::TYPE_NAMED) {
+      auto pit = config_.named_poses.find(g.name);
+      if (pit == config_.named_poses.end() || !pit->second.count(step.named_target)) {
+        error = "unknown named pose '" + step.named_target + "' for group '" + g.name + "'";
+        return false;
+      }
+      target = pit->second.at(step.named_target);
+    } else {
+      target = step.joint_target;
+    }
+    if (target.size() != g.joints.size()) {
+      error = "target has " + std::to_string(target.size()) + " values, group '" +
+        g.name + "' expects " + std::to_string(g.joints.size());
+      return false;
+    }
+    return TrajectoryGenerator::jointPath(start, target, motion, valid, path, error);
   }
 
+  if (step.type == MotionStep::TYPE_CARTESIAN) {
+    if (!g.cartesian || !kinematics_.count(g.name)) {
+      error = "group '" + g.name + "' is not Cartesian capable";
+      return false;
+    }
+    auto kin = kinematics_.at(g.name);
+    Eigen::Isometry3d start_pose;
+    if (!kin->fkTip(start, start_pose)) {
+      error = "forward kinematics failed for group '" + g.name + "'";
+      return false;
+    }
+
+    Eigen::Isometry3d goal_pose;
+    if (!step.reference_frame.empty()) {
+      geometry_msgs::msg::TransformStamped tfm;
+      try {
+        tfm = tf_buffer_->lookupTransform(
+          g.base_link, step.reference_frame, tf2::TimePointZero, tf2::durationFromSec(0.5));
+      } catch (const tf2::TransformException & ex) {
+        error = "TF lookup '" + g.base_link + "' <- '" + step.reference_frame + "' failed: " +
+          ex.what();
+        return false;
+      }
+      goal_pose = tf2::transformToEigen(tfm) * poseMsgToEigen(step.pose_target);
+    } else if (step.relative) {
+      goal_pose = start_pose;
+      Eigen::Vector3d off(step.offset.x, step.offset.y, step.offset.z);
+      goal_pose.translation() += step.offset_in_tip_frame ? (start_pose.linear() * off) : off;
+    } else {
+      goal_pose = poseMsgToEigen(step.pose_target);
+    }
+
+    if (step.cartesian_path) {
+      return TrajectoryGenerator::cartesianPath(
+        *kin, start, start_pose, goal_pose, motion, valid, path, error);
+    }
+    std::vector<double> target;
+    if (!kin->ik(goal_pose, start, target, /*limit_jump=*/false)) {
+      error = "IK failed for the requested pose target (group '" + g.name + "')";
+      return false;
+    }
+    return TrajectoryGenerator::jointPath(start, target, motion, valid, path, error);
+  }
+
+  error = "step type " + std::to_string(step.type) + " is not a motion step";
+  return false;
+}
+
+bool ManipulationServer::runTrajectory(
+  const GroupConfig & g, const JointPath & path, double vscale,
+  double ascale, std::string & error)
+{
+  if (path.size() < 2) {return true;}  // nothing to move
   Limits limits;
   makeLimits(g, limits);
   MotionLimits motion;
@@ -218,74 +385,49 @@ bool ManipulationServer::executeNamedOrJoint(
   motion.acceleration_scaling = ascale;
   motion.joint_resolution = config_.collision.resolution;
   motion.cartesian_step = g.cartesian_step;
-
-  const auto joints = g.joints;
-  auto base_state = currentState();
-  StateValidator valid = [this, joints, base_state](const std::vector<double> & q) {
-      std::map<std::string, double> full = base_state;
-      for (size_t i = 0; i < joints.size(); ++i) {full[joints[i]] = q[i];}
-      return collision_.checkState(full);
-    };
+  motion.limit_acceleration = config_.defaults.acceleration_limiting;
 
   trajectory_msgs::msg::JointTrajectory traj;
-  if (!TrajectoryGenerator::planJoint(g.joints, start, target, limits, motion, valid, traj, error)) {
-    return false;
+  TrajectoryGenerator::toTrajectory(g.joints, path, limits, motion, traj);
+
+  // Wait for the trajectory's own duration plus a margin, instead of a fixed
+  // timeout that would wrongly abort a legitimately long motion.
+  double duration = 0.0;
+  if (!traj.points.empty()) {
+    const auto & tfs = traj.points.back().time_from_start;
+    duration = tfs.sec + tfs.nanosec * 1e-9;
   }
-  return move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  const double timeout = duration + config_.defaults.execution_timeout;
+
+  RCLCPP_INFO(
+    get_logger(), "[%s] executing %zu waypoints, planned duration %.1f s ...",
+    g.name.c_str(), traj.points.size(), duration);
+  const auto t0 = std::chrono::steady_clock::now();
+  const bool ok = move_groups_.at(g.name)->execute(traj, timeout, error);
+  RCLCPP_INFO(
+    get_logger(), "[%s] execution finished in %.0f ms (%s)", g.name.c_str(),
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
+    ok ? "ok" : "failed");
+  return ok;
 }
 
-bool ManipulationServer::executeCartesian(
+bool ManipulationServer::executeGripperStep(
   const GroupConfig & g, const MotionStep & step, std::string & error)
 {
-  if (!g.cartesian || !kinematics_.count(g.name)) {
-    error = "group '" + g.name + "' is not Cartesian capable";
-    return false;
+  double position = step.gripper_position;
+  if (!step.named_target.empty()) {
+    auto pit = config_.named_poses.find(g.name);
+    if (pit == config_.named_poses.end() || !pit->second.count(step.named_target) ||
+      pit->second.at(step.named_target).empty())
+    {
+      error = "unknown gripper pose '" + step.named_target + "' for '" + g.name + "'";
+      return false;
+    }
+    position = pit->second.at(step.named_target).front();
   }
-  auto kin = kinematics_.at(g.name);
-
-  std::vector<double> start;
-  if (!currentGroupValues(g, start, error)) {return false;}
-
-  Eigen::Isometry3d start_pose;
-  if (!kin->fkTip(start, start_pose)) {
-    error = "forward kinematics failed for group '" + g.name + "'";
-    return false;
-  }
-
-  Eigen::Isometry3d goal_pose;
-  if (step.relative) {
-    goal_pose = start_pose;
-    Eigen::Vector3d off(step.offset.x, step.offset.y, step.offset.z);
-    goal_pose.translation() += step.offset_in_tip_frame ? (start_pose.linear() * off) : off;
-  } else {
-    goal_pose = poseMsgToEigen(step.pose_target);
-  }
-
-  Limits limits;
-  makeLimits(g, limits);
-  MotionLimits motion;
-  motion.velocity_scaling =
-    step.velocity_scaling > 0 ? step.velocity_scaling : g.default_velocity_scaling;
-  motion.acceleration_scaling =
-    step.acceleration_scaling > 0 ? step.acceleration_scaling : g.default_acceleration_scaling;
-  motion.cartesian_step = g.cartesian_step;
-  motion.joint_resolution = config_.collision.resolution;
-
-  const auto joints = g.joints;
-  auto base_state = currentState();
-  StateValidator valid = [this, joints, base_state](const std::vector<double> & q) {
-      std::map<std::string, double> full = base_state;
-      for (size_t i = 0; i < joints.size(); ++i) {full[joints[i]] = q[i];}
-      return collision_.checkState(full);
-    };
-
-  trajectory_msgs::msg::JointTrajectory traj;
-  if (!TrajectoryGenerator::planCartesian(
-      g.joints, *kin, start, start_pose, goal_pose, limits, motion, valid, traj, error))
-  {
-    return false;
-  }
-  return move_groups_.at(g.name)->execute(traj, config_.defaults.execution_timeout, error);
+  return move_groups_.at(g.name)->executeGripper(
+    position, get_parameter("gripper_max_effort").as_double(),
+    config_.defaults.execution_timeout, error);
 }
 
 bool ManipulationServer::executeStep(const MotionStep & step, std::string & error)
@@ -296,44 +438,25 @@ bool ManipulationServer::executeStep(const MotionStep & step, std::string & erro
     return false;
   }
   const GroupConfig & g = git->second;
-  const double vscale =
-    step.velocity_scaling > 0 ? step.velocity_scaling : g.default_velocity_scaling;
-  const double ascale =
-    step.acceleration_scaling > 0 ? step.acceleration_scaling : g.default_acceleration_scaling;
 
-  switch (step.type) {
-    case MotionStep::TYPE_NAMED: {
-      auto pit = config_.named_poses.find(g.name);
-      if (pit == config_.named_poses.end() || !pit->second.count(step.named_target)) {
-        error = "unknown named pose '" + step.named_target + "' for group '" + g.name + "'";
-        return false;
-      }
-      return executeNamedOrJoint(g, pit->second.at(step.named_target), vscale, ascale, error);
-    }
-    case MotionStep::TYPE_JOINT:
-      return executeNamedOrJoint(g, step.joint_target, vscale, ascale, error);
-    case MotionStep::TYPE_CARTESIAN:
-      return executeCartesian(g, step, error);
-    case MotionStep::TYPE_GRIPPER: {
-      double position = step.gripper_position;
-      if (!step.named_target.empty()) {
-        auto pit = config_.named_poses.find(g.name);
-        if (pit == config_.named_poses.end() || !pit->second.count(step.named_target) ||
-          pit->second.at(step.named_target).empty())
-        {
-          error = "unknown gripper pose '" + step.named_target + "' for '" + g.name + "'";
-          return false;
-        }
-        position = pit->second.at(step.named_target).front();
-      }
-      return move_groups_.at(g.name)->executeGripper(
-        position, get_parameter("gripper_max_effort").as_double(),
-        config_.defaults.execution_timeout, error);
-    }
-    default:
-      error = "unknown step type " + std::to_string(step.type);
-      return false;
+  if (step.type == MotionStep::TYPE_GRIPPER) {
+    return executeGripperStep(g, step, error);
   }
+
+  std::vector<double> start;
+  if (!currentGroupValues(g, start, error)) {return false;}
+  JointPath path;
+  const auto t0 = std::chrono::steady_clock::now();
+  if (!computeStepPath(g, step, start, currentState(), path, error)) {return false;}
+  RCLCPP_INFO(
+    get_logger(), "[%s] trajectory generated in %.0f ms (%zu waypoints), executing...",
+    g.name.c_str(),
+    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
+    path.size());
+
+  double vscale, ascale;
+  stepScaling(g, step, vscale, ascale);
+  return runTrajectory(g, path, vscale, ascale, error);
 }
 
 // --- Move action -----------------------------------------------------------
@@ -428,25 +551,114 @@ void ManipulationServer::seqAccepted(
       bool ok = true;
       std::string err;
 
-      for (size_t i = 0; i < steps.size(); ++i) {
+      // Consecutive motion steps on the same group are concatenated into one
+      // continuous trajectory (no stop between them) and only blended/executed
+      // at a barrier: a gripper step, a group change, or the end. This is what
+      // gives fluid, human-like chaining.
+      const GroupConfig * batch_g = nullptr;
+      JointPath batch_path;
+      std::vector<size_t> batch_junctions;
+      std::vector<double> batch_radii;
+      std::vector<double> batch_start_q;
+      std::map<std::string, double> batch_base_state;
+      double batch_vmin = 1.0, batch_amin = 1.0, prev_blend = 0.0;
+      int batch_count = 0;
+
+      auto flush = [&](std::string & e) -> bool {
+          if (!batch_g || batch_path.size() < 2) {
+            batch_g = nullptr; batch_path.clear(); batch_junctions.clear();
+            batch_radii.clear(); batch_count = 0;
+            return true;
+          }
+          const std::vector<std::string> jn = batch_g->joints;
+          const std::set<std::string> active(jn.begin(), jn.end());
+          const auto base = batch_base_state;
+          StateValidator valid = [this, jn, active, base](const std::vector<double> & q) {
+              std::map<std::string, double> full = base;
+              for (size_t i = 0; i < jn.size(); ++i) {full[jn[i]] = q[i];}
+              return collision_.checkState(full, active);
+            };
+          const size_t nb = TrajectoryGenerator::blendJunctions(
+            batch_path, batch_junctions, batch_radii, valid);
+          RCLCPP_INFO(
+            get_logger(), "[%s] %zu step(s), %zu/%zu junction(s) blended",
+            batch_g->name.c_str(), static_cast<size_t>(batch_count), nb, batch_junctions.size());
+          const bool r = runTrajectory(*batch_g, batch_path, batch_vmin, batch_amin, e);
+          if (r) {result->completed_steps += batch_count;}
+          batch_g = nullptr; batch_path.clear(); batch_junctions.clear();
+          batch_radii.clear(); batch_count = 0;
+          return r;
+        };
+
+      for (size_t i = 0; i < steps.size() && ok; ++i) {
         if (cancel_requested_.load()) {
+          flush(err);  // finish what is already planned
           result->success = false;
           result->message = "canceled";
           gh->canceled(result);
           busy_.store(false);
           return;
         }
+        const MotionStep & step = steps[i];
         feedback->current_step = static_cast<int>(i);
-        feedback->current_action = steps[i].group;
+        feedback->current_action = step.group;
         gh->publish_feedback(feedback);
 
-        if (!executeStep(steps[i], err)) {
+        auto git = config_.groups.find(step.group);
+        if (git == config_.groups.end()) {
+          flush(err);
+          err = "unknown move group '" + step.group + "'";
           ok = false;
-          RCLCPP_ERROR(get_logger(), "Sequence step %zu failed: %s", i, err.c_str());
-          if (goal->stop_on_failure) {break;}
-        } else {
-          result->completed_steps++;
+          break;
         }
+        const GroupConfig & g = git->second;
+
+        // Barriers: gripper actions and group changes close the current batch.
+        if (step.type == MotionStep::TYPE_GRIPPER || (batch_g && batch_g != &g)) {
+          if (!flush(err)) {ok = false; break;}
+        }
+
+        if (step.type == MotionStep::TYPE_GRIPPER) {
+          if (!executeGripperStep(g, step, err)) {ok = false; break;}
+          result->completed_steps++;
+          continue;
+        }
+
+        // Open a new batch if needed (capture the start configuration once).
+        if (!batch_g) {
+          batch_g = &g;
+          batch_base_state = currentState();
+          if (!currentGroupValues(g, batch_start_q, err)) {ok = false; break;}
+          batch_vmin = 1.0;
+          batch_amin = 1.0;
+        }
+
+        JointPath seg;
+        if (!computeStepPath(g, step, batch_start_q, batch_base_state, seg, err)) {
+          RCLCPP_ERROR(get_logger(), "Sequence step %zu failed: %s", i, err.c_str());
+          flush(err);  // execute the valid prefix
+          ok = false;
+          break;
+        }
+
+        if (batch_path.empty()) {
+          batch_path = seg;
+        } else if (seg.size() >= 2) {
+          batch_junctions.push_back(batch_path.size() - 1);
+          batch_radii.push_back(prev_blend);
+          batch_path.insert(batch_path.end(), seg.begin() + 1, seg.end());
+        }
+        batch_start_q = batch_path.back();
+        prev_blend = step.blend_radius;
+        double v, a;
+        stepScaling(g, step, v, a);
+        batch_vmin = std::min(batch_vmin, v);
+        batch_amin = std::min(batch_amin, a);
+        ++batch_count;
+      }
+
+      if (ok) {
+        if (!flush(err)) {ok = false;}
       }
 
       result->success = ok;
@@ -491,6 +703,75 @@ void ManipulationServer::manageCollisionObject(
       break;
   }
   res->message = res->success ? "ok" : err;
+}
+
+// --- visualization ---------------------------------------------------------
+
+void ManipulationServer::publishMarkers()
+{
+  using Marker = visualization_msgs::msg::Marker;
+  using SP = shape_msgs::msg::SolidPrimitive;
+
+  const auto objects = collision_.objects();
+  visualization_msgs::msg::MarkerArray arr;
+
+  Marker del;
+  del.action = Marker::DELETEALL;
+  arr.markers.push_back(del);
+
+  int id = 0;
+  for (const auto & o : objects) {
+    Marker m;
+    m.header.frame_id = o.attached_link.empty() ? collision_.rootFrame() : o.attached_link;
+    m.header.stamp = now();
+    m.ns = "collision_objects";
+    m.id = id++;
+    m.action = Marker::ADD;
+
+    const Eigen::Quaterniond q(o.pose.linear());
+    m.pose.position.x = o.pose.translation().x();
+    m.pose.position.y = o.pose.translation().y();
+    m.pose.position.z = o.pose.translation().z();
+    m.pose.orientation.x = q.x();
+    m.pose.orientation.y = q.y();
+    m.pose.orientation.z = q.z();
+    m.pose.orientation.w = q.w();
+
+    const auto & d = o.primitive.dimensions;
+    switch (o.primitive.type) {
+      case SP::BOX:
+        if (d.size() >= 3) {
+          m.type = Marker::CUBE;
+          m.scale.x = d[SP::BOX_X];
+          m.scale.y = d[SP::BOX_Y];
+          m.scale.z = d[SP::BOX_Z];
+        }
+        break;
+      case SP::SPHERE:
+        if (!d.empty()) {
+          m.type = Marker::SPHERE;
+          m.scale.x = m.scale.y = m.scale.z = 2.0 * d[SP::SPHERE_RADIUS];
+        }
+        break;
+      case SP::CYLINDER:
+        if (d.size() >= 2) {
+          m.type = Marker::CYLINDER;
+          m.scale.x = m.scale.y = 2.0 * d[SP::CYLINDER_RADIUS];
+          m.scale.z = d[SP::CYLINDER_HEIGHT];
+        }
+        break;
+      default:
+        continue;
+    }
+
+    m.color.r = 1.0f;
+    m.color.g = 0.5f;
+    m.color.b = 0.0f;
+    m.color.a = 0.6f;
+    arr.markers.push_back(m);
+  }
+
+  marker_pub_->publish(arr);
 }
 
 }  // namespace bimanual_manipulation

@@ -16,8 +16,11 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <urdf/model.h>
 #include <kdl/tree.hpp>
 
@@ -30,6 +33,7 @@
 #include "bimanual_manipulation/config_loader.hpp"
 #include "bimanual_manipulation/kinematics.hpp"
 #include "bimanual_manipulation/move_group.hpp"
+#include "bimanual_manipulation/trajectory_generator.hpp"
 
 namespace bimanual_manipulation
 {
@@ -54,10 +58,22 @@ private:
 
   // --- core execution ------------------------------------------------------
   bool executeStep(const MotionStep & step, std::string & error);
-  bool executeNamedOrJoint(
-    const GroupConfig & g, const std::vector<double> & target, double vscale,
+
+  // Geometry of one motion step (named/joint/cartesian), starting at `start`
+  // (group order), appended to `path`. Does not move the robot. Used both for
+  // single moves and for concatenating a sequence into one fluid trajectory.
+  bool computeStepPath(
+    const GroupConfig & g, const MotionStep & step, const std::vector<double> & start,
+    const std::map<std::string, double> & base_state, JointPath & path,
+    std::string & error);
+
+  // Time-parameterize a joint path and run it on the group's controllers.
+  bool runTrajectory(
+    const GroupConfig & g, const JointPath & path, double vscale,
     double ascale, std::string & error);
-  bool executeCartesian(const GroupConfig & g, const MotionStep & step, std::string & error);
+
+  bool executeGripperStep(const GroupConfig & g, const MotionStep & step, std::string & error);
+  void stepScaling(const GroupConfig & g, const MotionStep & step, double & v, double & a) const;
 
   std::map<std::string, double> currentState() const;
   bool currentGroupValues(const GroupConfig & g, std::vector<double> & q, std::string & error) const;
@@ -82,6 +98,8 @@ private:
     const std::shared_ptr<ManageCollisionObject::Request> req,
     std::shared_ptr<ManageCollisionObject::Response> res);
 
+  void publishMarkers();
+
   // --- state ---------------------------------------------------------------
   urdf::Model urdf_model_;
   KDL::Tree kdl_tree_;
@@ -95,6 +113,9 @@ private:
   mutable std::mutex state_mutex_;
   std::map<std::string, double> joint_state_;
 
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
   std::atomic<bool> busy_{false};
   std::atomic<bool> cancel_requested_{false};
 
@@ -105,6 +126,9 @@ private:
   rclcpp_action::Server<Move>::SharedPtr move_server_;
   rclcpp_action::Server<ExecuteSequence>::SharedPtr seq_server_;
   rclcpp::Service<ManageCollisionObject>::SharedPtr collision_service_;
+
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::TimerBase::SharedPtr marker_timer_;
 };
 
 }  // namespace bimanual_manipulation

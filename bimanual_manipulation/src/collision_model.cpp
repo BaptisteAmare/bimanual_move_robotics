@@ -1,8 +1,11 @@
 #include "bimanual_manipulation/collision_model.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <deque>
+#include <tuple>
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -15,19 +18,77 @@ namespace bimanual_manipulation
 namespace
 {
 
-// Load a mesh resource (package:// or file://) into an FCL BVH model.
+// Vertex-clustering decimation: snap vertices onto a grid of size `voxel`,
+// merge co-located ones to their centroid, and drop the resulting degenerate
+// triangles. Cheaply turns a detailed mesh into a coarse collision proxy.
+void decimate(
+  std::vector<fcl::Vector3d> & verts, std::vector<fcl::Triangle> & tris, double voxel)
+{
+  if (voxel <= 0.0 || verts.empty()) {return;}
+  const double inv = 1.0 / voxel;
+  std::map<std::tuple<int, int, int>, int> cell_to_new;
+  std::vector<fcl::Vector3d> sum;
+  std::vector<int> count;
+  std::vector<int> remap(verts.size());
+
+  for (size_t i = 0; i < verts.size(); ++i) {
+    const auto key = std::make_tuple(
+      static_cast<int>(std::floor(verts[i].x() * inv)),
+      static_cast<int>(std::floor(verts[i].y() * inv)),
+      static_cast<int>(std::floor(verts[i].z() * inv)));
+    auto it = cell_to_new.find(key);
+    int idx;
+    if (it == cell_to_new.end()) {
+      idx = static_cast<int>(sum.size());
+      cell_to_new.emplace(key, idx);
+      sum.push_back(verts[i]);
+      count.push_back(1);
+    } else {
+      idx = it->second;
+      sum[idx] += verts[i];
+      ++count[idx];
+    }
+    remap[i] = idx;
+  }
+
+  std::vector<fcl::Vector3d> nv(sum.size());
+  for (size_t i = 0; i < sum.size(); ++i) {nv[i] = sum[i] / count[i];}
+
+  std::vector<fcl::Triangle> nt;
+  nt.reserve(tris.size());
+  for (const auto & t : tris) {
+    const int a = remap[t[0]], b = remap[t[1]], c = remap[t[2]];
+    if (a != b && b != c && a != c) {nt.emplace_back(a, b, c);}
+  }
+  verts.swap(nv);
+  tris.swap(nt);
+}
+
+// Load a mesh resource (package:// or file://) into an FCL BVH model,
+// optionally decimated. Adds the resulting triangle count to *tri_count.
 std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
-  const std::string & uri, const urdf::Vector3 & scale)
+  const std::string & uri, const urdf::Vector3 & scale, double voxel, size_t * tri_count)
 {
   try {
     resource_retriever::Retriever retriever;
     resource_retriever::MemoryResource res = retriever.get(uri);
 
+    // assimp needs the file extension as a hint to pick the right importer
+    // when reading from memory (otherwise STL/DAE detection often fails).
+    std::string ext;
+    const auto dot = uri.find_last_of('.');
+    if (dot != std::string::npos) {
+      ext = uri.substr(dot + 1);
+      for (auto & c : ext) {c = static_cast<char>(::tolower(c));}
+    }
+
     Assimp::Importer importer;
     const aiScene * scene = importer.ReadFileFromMemory(
       res.data.get(), res.size,
-      aiProcess_Triangulate | aiProcess_JoinIdenticalVertices, nullptr);
+      aiProcess_Triangulate | aiProcess_JoinIdenticalVertices, ext.c_str());
     if (!scene || !scene->HasMeshes()) {
+      std::fprintf(stderr, "[collision_model] mesh '%s' produced no usable geometry: %s\n",
+        uri.c_str(), importer.GetErrorString());
       return nullptr;
     }
 
@@ -50,7 +111,9 @@ std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
           triangles.emplace_back(face.mIndices[0], face.mIndices[1], face.mIndices[2]);
         }
       }
-      model->addSubModel(vertices, triangles);
+      decimate(vertices, triangles, voxel);
+      if (tri_count) {*tri_count += triangles.size();}
+      if (!triangles.empty()) {model->addSubModel(vertices, triangles);}
     }
     model->endModel();
     return model;
@@ -132,41 +195,68 @@ bool CollisionModel::init(
   }
 
   // --- collision shapes per link ------------------------------------------
+  const double pad = settings_.padding;
+  auto build = [&](const urdf::GeometrySharedPtr & g)
+    -> std::shared_ptr<fcl::CollisionGeometryd> {
+      switch (g->type) {
+        case urdf::Geometry::BOX: {
+          auto b = std::dynamic_pointer_cast<urdf::Box>(g);
+          return std::make_shared<fcl::Boxd>(
+            b->dim.x + 2 * pad, b->dim.y + 2 * pad, b->dim.z + 2 * pad);
+        }
+        case urdf::Geometry::SPHERE: {
+          auto s = std::dynamic_pointer_cast<urdf::Sphere>(g);
+          return std::make_shared<fcl::Sphered>(s->radius + pad);
+        }
+        case urdf::Geometry::CYLINDER: {
+          auto c = std::dynamic_pointer_cast<urdf::Cylinder>(g);
+          return std::make_shared<fcl::Cylinderd>(c->radius + pad, c->length + 2 * pad);
+        }
+        case urdf::Geometry::MESH: {
+          auto m = std::dynamic_pointer_cast<urdf::Mesh>(g);
+          ++meshes_total_;
+          auto geom = loadMesh(m->filename, m->scale, settings_.mesh_decimation, &mesh_triangles_);
+          if (!geom) {++meshes_failed_;}
+          return geom;
+        }
+        default:
+          return nullptr;
+      }
+    };
+
   for (const auto & node : nodes_) {
     urdf::LinkConstSharedPtr link = model.getLink(node.name);
     if (!link) {continue;}
     const int node_idx = node_index_[node.name];
-    for (const auto & col : link->collision_array) {
-      if (!col || !col->geometry) {continue;}
-      std::shared_ptr<fcl::CollisionGeometryd> geom;
-      const double pad = settings_.padding;
-      switch (col->geometry->type) {
-        case urdf::Geometry::BOX: {
-          auto b = std::dynamic_pointer_cast<urdf::Box>(col->geometry);
-          geom = std::make_shared<fcl::Boxd>(
-            b->dim.x + 2 * pad, b->dim.y + 2 * pad, b->dim.z + 2 * pad);
-          break;
-        }
-        case urdf::Geometry::SPHERE: {
-          auto s = std::dynamic_pointer_cast<urdf::Sphere>(col->geometry);
-          geom = std::make_shared<fcl::Sphered>(s->radius + pad);
-          break;
-        }
-        case urdf::Geometry::CYLINDER: {
-          auto c = std::dynamic_pointer_cast<urdf::Cylinder>(col->geometry);
-          geom = std::make_shared<fcl::Cylinderd>(c->radius + pad, c->length + 2 * pad);
-          break;
-        }
-        case urdf::Geometry::MESH: {
-          auto m = std::dynamic_pointer_cast<urdf::Mesh>(col->geometry);
-          geom = loadMesh(m->filename, m->scale);
-          break;
-        }
-        default:
-          break;
+
+    // Prefer <collision> geometry; fall back to <visual> when a link declares
+    // none (common on robots that only model visuals).
+    std::vector<std::pair<urdf::GeometrySharedPtr, urdf::Pose>> geoms;
+    if (!link->collision_array.empty()) {
+      for (const auto & c : link->collision_array) {
+        if (c && c->geometry) {geoms.emplace_back(c->geometry, c->origin);}
       }
+    } else {
+      for (const auto & v : link->visual_array) {
+        if (v && v->geometry) {geoms.emplace_back(v->geometry, v->origin);}
+      }
+      if (!geoms.empty()) {++visual_fallback_links_;}
+    }
+
+    for (const auto & [geometry, origin] : geoms) {
+      auto geom = build(geometry);
       if (!geom) {continue;}
-      shapes_.push_back({node_idx, geom, urdfToEigen(col->origin)});
+      shapes_.push_back({node_idx, geom, urdfToEigen(origin)});
+    }
+  }
+
+  // Note which links ended up with no collision geometry (e.g. mesh failed to
+  // load, or the link genuinely has none) so the server can warn about it.
+  {
+    std::vector<int> shapes_per_node(nodes_.size(), 0);
+    for (const auto & s : shapes_) {++shapes_per_node[s.node];}
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      if (shapes_per_node[i] == 0) {links_without_collision_.push_back(nodes_[i].name);}
     }
   }
 
@@ -227,10 +317,37 @@ void CollisionModel::computeLinkTransforms(
 
 bool CollisionModel::checkState(const std::map<std::string, double> & joint_values) const
 {
+  return checkStateImpl(joint_values, nullptr);
+}
+
+bool CollisionModel::checkState(
+  const std::map<std::string, double> & joint_values,
+  const std::set<std::string> & active_joints) const
+{
+  return checkStateImpl(joint_values, &active_joints);
+}
+
+bool CollisionModel::checkStateImpl(
+  const std::map<std::string, double> & joint_values,
+  const std::set<std::string> * active_joints) const
+{
   if (!settings_.enabled) {return true;}
 
   std::vector<Eigen::Isometry3d> tf;
   computeLinkTransforms(joint_values, tf);
+
+  // A node is "active" when its transform depends on one of the active joints,
+  // i.e. its parent joint is active or its parent node is active. With no
+  // active set, everything is active (full check).
+  std::vector<char> active(nodes_.size(), active_joints ? 0 : 1);
+  if (active_joints) {
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      const int p = nodes_[i].parent;
+      if (p >= 0 && (active[p] || active_joints->count(nodes_[i].joint_name))) {
+        active[i] = 1;
+      }
+    }
+  }
 
   // Build collision objects once for every shape.
   std::vector<fcl::CollisionObjectd> objs;
@@ -239,17 +356,36 @@ bool CollisionModel::checkState(const std::map<std::string, double> & joint_valu
     objs.emplace_back(s.geom, Eigen::Isometry3d(tf[s.node] * s.origin));
   }
 
-  fcl::CollisionRequestd request;
-  fcl::CollisionResultd result;
+  const double margin = settings_.margin;
+
+  // True when the two objects touch (margin == 0) or are closer than `margin`.
+  // Uses an exact distance query when a margin is requested, so the separation
+  // applies to meshes as well as primitives.
+  auto tooClose = [&](fcl::CollisionObjectd * a, fcl::CollisionObjectd * b) -> bool {
+      if (margin > 0.0) {
+        if (a->getAABB().distance(b->getAABB()) > margin) {return false;}
+        fcl::DistanceRequestd dreq;
+        dreq.enable_nearest_points = false;
+        fcl::DistanceResultd dres;
+        fcl::distance(a, b, dreq, dres);
+        return dres.min_distance < margin;
+      }
+      if (!a->getAABB().overlap(b->getAABB())) {return false;}
+      fcl::CollisionRequestd creq;
+      fcl::CollisionResultd cres;
+      fcl::collide(a, b, creq, cres);
+      return cres.isCollision();
+    };
 
   // --- self collision ------------------------------------------------------
   for (const auto & pair : check_pairs_) {
-    fcl::CollisionObjectd & a = objs[pair.first];
-    fcl::CollisionObjectd & b = objs[pair.second];
-    if (!a.getAABB().overlap(b.getAABB())) {continue;}
-    result.clear();
-    fcl::collide(&a, &b, request, result);
-    if (result.isCollision()) {return false;}
+    // Skip pairs that cannot have changed (both links static for this motion).
+    if (active_joints && !active[shapes_[pair.first].node] &&
+      !active[shapes_[pair.second].node])
+    {
+      continue;
+    }
+    if (tooClose(&objs[pair.first], &objs[pair.second])) {return false;}
   }
 
   // --- world objects -------------------------------------------------------
@@ -262,19 +398,17 @@ bool CollisionModel::checkState(const std::map<std::string, double> & joint_valu
       wobj->computeAABB();
     }
     for (size_t i = 0; i < objs.size(); ++i) {
+      const int sn = shapes_[i].node;
+      if (active_joints && !active[sn]) {continue;}  // static link, unchanged
       // Skip the link the object is attached to and its direct parent.
       if (wo.attached_node >= 0) {
-        const int sn = shapes_[i].node;
         if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
           nodes_[wo.attached_node].parent == sn)
         {
           continue;
         }
       }
-      if (!wobj->getAABB().overlap(objs[i].getAABB())) {continue;}
-      result.clear();
-      fcl::collide(wobj, &objs[i], request, result);
-      if (result.isCollision()) {return false;}
+      if (tooClose(wobj, &objs[i])) {return false;}
     }
   }
 
@@ -299,6 +433,7 @@ bool CollisionModel::addObject(
   wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, pose);
   wo.pose = pose;
   wo.attached_node = -1;
+  wo.primitive = primitive;
   world_.push_back(std::move(wo));
   return true;
 }
@@ -326,6 +461,8 @@ bool CollisionModel::addAttachedObject(
   wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, pose_in_link);
   wo.pose = pose_in_link;
   wo.attached_node = it->second;
+  wo.primitive = primitive;
+  wo.attached_link = link;
   world_.push_back(std::move(wo));
   return true;
 }
@@ -344,6 +481,17 @@ void CollisionModel::clearObjects()
 {
   std::lock_guard<std::mutex> lock(world_mutex_);
   world_.clear();
+}
+
+std::vector<CollisionModel::ObjectInfo> CollisionModel::objects() const
+{
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  std::vector<ObjectInfo> out;
+  out.reserve(world_.size());
+  for (const auto & wo : world_) {
+    out.push_back({wo.id, wo.primitive, wo.pose, wo.attached_link});
+  }
+  return out;
 }
 
 }  // namespace bimanual_manipulation
