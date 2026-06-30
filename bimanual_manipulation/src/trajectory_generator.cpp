@@ -202,22 +202,32 @@ void TrajectoryGenerator::toTrajectory(
     dt[s] = seg;
   }
 
-  // 2) Single global time-stretch so the acceleration limit is respected
-  //    (acceleration scales as 1/time^2, hence the sqrt of the worst ratio).
-  double accel_ratio = 1.0;
-  for (size_t s = 1; s + 1 < W; ++s) {
-    const double dtm = 0.5 * (dt[s] + dt[s + 1]);
-    if (dtm < 1e-9) {continue;}
-    for (size_t i = 0; i < n; ++i) {
-      const double v_in = (waypoints[s][i] - waypoints[s - 1][i]) / dt[s];
-      const double v_out = (waypoints[s + 1][i] - waypoints[s][i]) / dt[s + 1];
-      const double a = std::abs(v_out - v_in) / dtm;
-      const double amax = std::max(limits.max_acceleration[i] * ascale, 1e-6);
-      accel_ratio = std::max(accel_ratio, a / amax);
+  // 2) Acceleration limiting, applied LOCALLY: only the segments around a
+  //    junction whose acceleration exceeds the limit are stretched. A single
+  //    sharp corner (e.g. a direction reversal) thus slows the motion only near
+  //    that corner, not the whole trajectory. Iterate until it settles.
+  for (int iter = 0; iter < 12; ++iter) {
+    bool changed = false;
+    for (size_t s = 1; s + 1 < W; ++s) {
+      const double dtm = 0.5 * (dt[s] + dt[s + 1]);
+      if (dtm < 1e-9) {continue;}
+      double ratio = 1.0;
+      for (size_t i = 0; i < n; ++i) {
+        const double v_in = (waypoints[s][i] - waypoints[s - 1][i]) / dt[s];
+        const double v_out = (waypoints[s + 1][i] - waypoints[s][i]) / dt[s + 1];
+        const double a = std::abs(v_out - v_in) / dtm;
+        const double amax = std::max(limits.max_acceleration[i] * ascale, 1e-6);
+        ratio = std::max(ratio, a / amax);
+      }
+      if (ratio > 1.0001) {
+        const double f = std::sqrt(ratio);  // a ~ 1/time^2
+        dt[s] *= f;
+        dt[s + 1] *= f;
+        changed = true;
+      }
     }
+    if (!changed) {break;}
   }
-  const double k = std::sqrt(accel_ratio);
-  for (auto & d : dt) {d *= k;}
 
   // 3) Timestamps.
   double t = 0.0;
