@@ -1,9 +1,6 @@
 # ---------------------------------------------------------------------------
 # Named joint-space poses. Values follow the same order as the group's "joints"
 # list in move_groups.yaml.
-#
-# These are placeholders (all-zero "home" + a mild "ready"). Adjust to safe,
-# collision-free configurations for your robot.
 # ---------------------------------------------------------------------------
 
 named_poses:

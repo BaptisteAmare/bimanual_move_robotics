@@ -34,9 +34,14 @@ public:
 
   // Inverse kinematics. Returns false if KDL fails to converge or the result
   // violates joint limits. The seed is used as the initial guess.
+  //
+  // limit_jump=true (Cartesian path following) rejects solutions far from the
+  // seed to keep continuity and restarts only with small perturbations.
+  // limit_jump=false (one-shot "go to this pose") accepts any in-limit
+  // solution and restarts from anywhere in the joint range.
   bool ik(
     const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-    std::vector<double> & q) const;
+    std::vector<double> & q, bool limit_jump = true) const;
 
   size_t dof() const {return chain_.getNrOfJoints();}
   const std::vector<std::pair<double, double>> & limits() const {return limits_;}

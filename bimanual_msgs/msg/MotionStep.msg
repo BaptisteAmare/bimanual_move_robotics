@@ -21,15 +21,30 @@ string named_target
 float64[] joint_target
 
 # --- TYPE_CARTESIAN --------------------------------------------------------
-# Absolute target pose of the tip, expressed in the planning frame.
+# Target pose of the tip.
+#   * If reference_frame is set, pose_target is expressed in that TF frame
+#     (a translation+rotation delta from the frame origin), and the server
+#     transforms it into the arm's base frame via TF. This is the MoveIt-like
+#     "pose target in frame_id" and lets you approach an EEF pose defined
+#     relative to any frame (an object, a fixture, ...).
+#   * Else if relative is true, pose_target is ignored and "offset" is applied
+#     to the current tip pose (handy for approach / retreat moves).
+#   * Else pose_target is taken directly in the arm's base frame.
 geometry_msgs/Pose pose_target
-# If relative is true, pose_target is ignored and "offset" is applied to the
-# current tip pose instead (handy for approach / retreat moves).
+string reference_frame
+
 bool relative
 geometry_msgs/Vector3 offset
 # If true, the offset is expressed in the tip frame (e.g. approach along the
-# tool's +Z axis); otherwise it is expressed in the planning frame.
+# tool's +Z axis); otherwise it is expressed in the arm's base frame.
 bool offset_in_tip_frame
+
+# Motion shape for TYPE_CARTESIAN:
+#   true  -> straight line of the tip in Cartesian space (IK per waypoint),
+#            precise for approach / retreat.
+#   false -> solve IK for the goal pose once, then interpolate in joint space
+#            (more robust and faster to reach an arbitrary pose).
+bool cartesian_path
 
 # --- TYPE_GRIPPER ----------------------------------------------------------
 # Target position of the gripper joint(s) (meters or radians, controller

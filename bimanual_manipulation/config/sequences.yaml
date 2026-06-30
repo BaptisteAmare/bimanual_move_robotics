@@ -34,3 +34,16 @@ sequences:
   reach_right:
     - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, 0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
     - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
+
+  # Pose target defined relative to a TF frame (MoveIt-like "pose in frame_id").
+  # Here: bring the left tip 15 cm above an object frame 'target_object', then
+  # descend straight down onto it.
+  #   - reference_frame : any TF frame (object, fixture, camera, ...)
+  #   - position/orientation : the delta pose in that frame
+  #   - cartesian_path  : false = IK + joint interpolation (reach), true = straight line
+  pick_above_object:
+    - {type: cartesian, group: left_arm, reference_frame: target_object,
+       position: [0.0, 0.0, 0.15], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: cartesian, group: left_arm, reference_frame: target_object,
+       position: [0.0, 0.0, 0.02], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: true,
+       velocity_scaling: 0.1}
