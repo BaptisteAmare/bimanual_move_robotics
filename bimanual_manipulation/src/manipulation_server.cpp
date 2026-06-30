@@ -517,6 +517,13 @@ bool ManipulationServer::executeFollow(
   const Eigen::Isometry3d delta = poseMsgToEigen(step.pose_target);
   const std::set<std::string> active(g.joints.begin(), g.joints.end());
 
+  // Per-cycle motion is velocity-limited so the arm approaches a far target at
+  // a controlled speed and then tracks it once close.
+  Limits limits;
+  makeLimits(g, limits);
+  double vscale, ascale;
+  stepScaling(g, step, vscale, ascale);
+
   // Optional external stop signal (lets a sequence end the follow and proceed).
   std::atomic<bool> stop_flag{false};
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr stop_sub;
@@ -555,15 +562,26 @@ bool ManipulationServer::executeFollow(
     }
 
     std::vector<double> target;
-    if (!kin->ik(goal, q, target, /*limit_jump=*/true)) {
+    if (!kin->ik(goal, q, target, /*limit_jump=*/false)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "[%s] follow target unreachable", g.name.c_str());
       std::this_thread::sleep_for(period);
       continue;
     }
 
+    // Step toward the IK target, capped by the joint velocity limits over the
+    // command horizon (so a far target is approached smoothly, not teleported).
+    double factor = 1.0;
+    for (size_t i = 0; i < g.joints.size(); ++i) {
+      const double dq = std::abs(target[i] - q[i]);
+      const double allowed = std::max(limits.max_velocity[i] * vscale * horizon, 1e-6);
+      if (dq > allowed) {factor = std::min(factor, allowed / dq);}
+    }
+    std::vector<double> cmd(g.joints.size());
+    for (size_t i = 0; i < g.joints.size(); ++i) {cmd[i] = q[i] + factor * (target[i] - q[i]);}
+
     std::map<std::string, double> full = currentState();
-    for (size_t i = 0; i < g.joints.size(); ++i) {full[g.joints[i]] = target[i];}
+    for (size_t i = 0; i < g.joints.size(); ++i) {full[g.joints[i]] = cmd[i];}
     if (!collision_.checkState(full, active)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "[%s] follow target in collision, holding",
@@ -590,7 +608,7 @@ bool ManipulationServer::executeFollow(
     trajectory_msgs::msg::JointTrajectory traj;
     traj.joint_names = g.joints;
     trajectory_msgs::msg::JointTrajectoryPoint pt;
-    pt.positions = target;
+    pt.positions = cmd;
     pt.time_from_start = rclcpp::Duration::from_seconds(horizon);
     traj.points.push_back(pt);
     move_groups_.at(g.name)->sendTrajectoryNoWait(traj, ignore);
