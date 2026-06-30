@@ -129,6 +129,9 @@ private:
   std::vector<LinkNode> nodes_;
   std::map<std::string, int> node_index_;
   std::vector<LinkShape> shapes_;
+  // Reusable FCL objects for the robot shapes: built once, only their transform
+  // is refreshed per check (avoids reallocating 33 objects on every query).
+  mutable std::vector<std::shared_ptr<fcl::CollisionObjectd>> shape_objs_;
   std::vector<std::string> links_without_collision_;
   size_t visual_fallback_links_ = 0;
   size_t meshes_total_ = 0;

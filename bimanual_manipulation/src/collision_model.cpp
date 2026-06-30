@@ -349,11 +349,18 @@ bool CollisionModel::checkStateImpl(
     }
   }
 
-  // Build collision objects once for every shape.
-  std::vector<fcl::CollisionObjectd> objs;
-  objs.reserve(shapes_.size());
-  for (const auto & s : shapes_) {
-    objs.emplace_back(s.geom, Eigen::Isometry3d(tf[s.node] * s.origin));
+  // Build the reusable FCL objects once, then just refresh their transforms.
+  if (shape_objs_.size() != shapes_.size()) {
+    shape_objs_.clear();
+    shape_objs_.reserve(shapes_.size());
+    for (const auto & s : shapes_) {
+      shape_objs_.push_back(
+        std::make_shared<fcl::CollisionObjectd>(s.geom, Eigen::Isometry3d::Identity()));
+    }
+  }
+  for (size_t i = 0; i < shapes_.size(); ++i) {
+    shape_objs_[i]->setTransform(Eigen::Isometry3d(tf[shapes_[i].node] * shapes_[i].origin));
+    shape_objs_[i]->computeAABB();
   }
 
   const double margin = settings_.margin;
@@ -385,7 +392,7 @@ bool CollisionModel::checkStateImpl(
     {
       continue;
     }
-    if (tooClose(&objs[pair.first], &objs[pair.second])) {return false;}
+    if (tooClose(shape_objs_[pair.first].get(), shape_objs_[pair.second].get())) {return false;}
   }
 
   // --- world objects -------------------------------------------------------
@@ -397,7 +404,7 @@ bool CollisionModel::checkStateImpl(
       wobj->setTransform(Eigen::Isometry3d(tf[wo.attached_node] * wo.pose));
       wobj->computeAABB();
     }
-    for (size_t i = 0; i < objs.size(); ++i) {
+    for (size_t i = 0; i < shape_objs_.size(); ++i) {
       const int sn = shapes_[i].node;
       if (active_joints && !active[sn]) {continue;}  // static link, unchanged
       // Skip the link the object is attached to and its direct parent.
@@ -408,7 +415,7 @@ bool CollisionModel::checkStateImpl(
           continue;
         }
       }
-      if (tooClose(wobj, &objs[i])) {return false;}
+      if (tooClose(wobj, shape_objs_[i].get())) {return false;}
     }
   }
 
