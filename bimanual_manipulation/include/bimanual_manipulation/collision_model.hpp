@@ -86,6 +86,7 @@ public:
   size_t meshTotal() const {return meshes_total_;}
   size_t meshFailed() const {return meshes_failed_;}
   size_t meshTriangles() const {return mesh_triangles_;}
+  size_t autoDisabledCount() const {return auto_disabled_;}
   const std::vector<std::string> & linksWithoutCollision() const
   {
     return links_without_collision_;
@@ -136,6 +137,10 @@ private:
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
 
+  // Remove from the check lists the pairs that collide in every sampled config
+  // (permanent structural contacts).
+  void autoDisableAlwaysColliding(const urdf::Model & model);
+
   // Build the per-link sphere approximation (spheres mode).
   void buildSpheres(const urdf::Model & model);
   void appendSpheresForGeometry(
@@ -175,6 +180,7 @@ private:
   size_t meshes_total_ = 0;
   size_t meshes_failed_ = 0;
   size_t mesh_triangles_ = 0;
+  size_t auto_disabled_ = 0;
 
   // Precomputed list of shape index pairs that must be tested for
   // self-collision (i.e. all pairs except the allowed/adjacent ones).

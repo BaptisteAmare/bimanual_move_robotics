@@ -21,6 +21,11 @@ collision:
   mode: spheres
   sphere_voxel: 0.05          # sphere sampling resolution [m] (spheres mode)
   sphere_radius_scale: 1.0    # inflate (>1) / deflate (<1) the spheres
+  # Auto-disable link pairs that collide in EVERY sampled configuration
+  # (permanent structural contacts the SRDF didn't cover, e.g. pelvis packaging).
+  # Like MoveIt's "Always in collision". Set false to rely only on the SRDF.
+  auto_disable: true
+  auto_disable_samples: 50
   padding: 0.0          # primitive-only geometry inflation [m] (no effect on meshes)
   # Separation distance kept between any two elements (self + world objects,
   # meshes included). The robot is rejected from getting closer than this to

@@ -62,6 +62,10 @@ struct CollisionSettings
   std::string mode = "mesh";
   double sphere_voxel = 0.05;        // sphere sampling resolution [m] (spheres mode)
   double sphere_radius_scale = 1.0;  // inflate/deflate the generated spheres
+  // Auto-disable link pairs that are in collision in EVERY sampled config
+  // (structural / permanent contacts), like MoveIt's "Always in collision".
+  bool auto_disable = true;
+  int auto_disable_samples = 50;
   // Pairs of links whose mutual collisions are ignored (like an SRDF ACM).
   std::vector<std::pair<std::string, std::string>> disabled_pairs;
 };

@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdio>
 #include <deque>
+#include <map>
+#include <random>
 #include <tuple>
 
 #include <assimp/Importer.hpp>
@@ -273,6 +275,7 @@ bool CollisionModel::init(
         check_node_pairs_.emplace_back(static_cast<int>(i), static_cast<int>(j));
       }
     }
+    autoDisableAlwaysColliding(model);
     return true;
   }
 
@@ -354,7 +357,104 @@ bool CollisionModel::init(
     }
   }
 
+  autoDisableAlwaysColliding(model);
   return true;
+}
+
+void CollisionModel::autoDisableAlwaysColliding(const urdf::Model & model)
+{
+  if (!settings_.auto_disable) {return;}
+  const int N = std::max(1, settings_.auto_disable_samples);
+  const double margin = settings_.margin;
+
+  // Sampling bounds for the actuated joints.
+  std::vector<std::tuple<std::string, double, double>> jb;
+  for (const auto & n : nodes_) {
+    if (n.joint_name.empty()) {continue;}
+    auto j = model.getJoint(n.joint_name);
+    if (!j || j->type == urdf::Joint::FIXED || j->type == urdf::Joint::UNKNOWN) {continue;}
+    double lo = -M_PI, hi = M_PI;
+    if (j->limits && j->type != urdf::Joint::CONTINUOUS) {lo = j->limits->lower; hi = j->limits->upper;}
+    jb.emplace_back(n.joint_name, lo, hi);
+  }
+
+  std::mt19937 rng(20240517u);
+  auto sample = [&](int s) {
+      std::map<std::string, double> jv;
+      if (s > 0) {
+        for (const auto & [name, lo, hi] : jb) {
+          std::uniform_real_distribution<double> d(lo, hi);
+          jv[name] = d(rng);
+        }
+      }
+      return jv;
+    };
+
+  std::vector<Eigen::Isometry3d> tf;
+
+  if (sphere_mode_) {
+    std::vector<int> cnt(check_node_pairs_.size(), 0);
+    std::vector<Eigen::Vector3d> centers(spheres_.size());
+    for (int s = 0; s < N; ++s) {
+      computeLinkTransforms(sample(s), tf);
+      for (size_t i = 0; i < spheres_.size(); ++i) {
+        centers[i] = tf[spheres_[i].node] * spheres_[i].center;
+      }
+      for (size_t pi = 0; pi < check_node_pairs_.size(); ++pi) {
+        const auto & pr = check_node_pairs_[pi];
+        bool hit = false;
+        for (int ia : spheres_by_node_[pr.first]) {
+          for (int ib : spheres_by_node_[pr.second]) {
+            if ((centers[ia] - centers[ib]).norm() <
+              spheres_[ia].radius + spheres_[ib].radius + margin)
+            {
+              hit = true;
+              break;
+            }
+          }
+          if (hit) {break;}
+        }
+        if (hit) {++cnt[pi];}
+      }
+    }
+    std::vector<std::pair<int, int>> kept;
+    for (size_t pi = 0; pi < check_node_pairs_.size(); ++pi) {
+      if (cnt[pi] >= N) {++auto_disabled_;} else {kept.push_back(check_node_pairs_[pi]);}
+    }
+    check_node_pairs_.swap(kept);
+    return;
+  }
+
+  // Mesh mode.
+  if (shape_objs_.size() != shapes_.size()) {
+    shape_objs_.clear();
+    for (const auto & s : shapes_) {
+      shape_objs_.push_back(
+        std::make_shared<fcl::CollisionObjectd>(s.geom, Eigen::Isometry3d::Identity()));
+    }
+  }
+  fcl::CollisionRequestd creq;
+  fcl::CollisionResultd cres;
+  std::vector<int> cnt(check_pairs_.size(), 0);
+  for (int s = 0; s < N; ++s) {
+    computeLinkTransforms(sample(s), tf);
+    for (size_t i = 0; i < shapes_.size(); ++i) {
+      shape_objs_[i]->setTransform(Eigen::Isometry3d(tf[shapes_[i].node] * shapes_[i].origin));
+      shape_objs_[i]->computeAABB();
+    }
+    for (size_t pi = 0; pi < check_pairs_.size(); ++pi) {
+      cres.clear();
+      fcl::collide(
+        shape_objs_[check_pairs_[pi].first].get(),
+        shape_objs_[check_pairs_[pi].second].get(), creq, cres);
+      if (cres.isCollision()) {++cnt[pi];}
+    }
+  }
+  std::vector<std::pair<int, int>> kept;
+  for (size_t pi = 0; pi < check_pairs_.size(); ++pi) {
+    if (cnt[pi] >= N) {++auto_disabled_;} else {kept.push_back(check_pairs_[pi]);}
+  }
+  check_pairs_.swap(kept);
 }
 
 void CollisionModel::buildSpheres(const urdf::Model & model)

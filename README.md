@@ -148,8 +148,13 @@ Meshes: 33 loaded, 0 failed, NNNN collision triangles total.
   * `mesh_decimation` — grid size [m] for simplifying detailed collision meshes
     at load (huge speedup; `0` keeps full resolution).
   * `resolution` — joint-space step between collision-checked waypoints.
+  * `auto_disable` (default true) — at startup, sample `auto_disable_samples`
+    configurations and drop any link pair that collides in **all** of them
+    (permanent structural contacts, like MoveIt's "Always in collision"). Fixes
+    false positives the SRDF / adjacency didn't cover (pelvis packaging, etc.),
+    especially in `spheres` mode.
   * `disabled_pairs` — SRDF-style list of link pairs to ignore (in addition to
-    the SRDF and to parent/child adjacency).
+    the SRDF, the auto-disable pass, and parent/child adjacency).
 * **`sequences.yaml`** — named lists of steps (`named` / `joint` / `cartesian` /
   `gripper`), e.g. `pick_above_object`, `both_ready`.
 
