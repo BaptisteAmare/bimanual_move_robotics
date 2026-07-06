@@ -44,10 +44,13 @@ public:
     const std::map<std::string, double> & joint_values,
     const std::set<std::string> & active_joints) const;
 
-  // Human-readable list of every collision at this configuration (all pairs,
-  // no active filter) — for diagnosing why a state was rejected.
+  // Human-readable list of the collisions at this configuration — for
+  // diagnosing why a state was rejected. When active_joints is given, only the
+  // pairs that actually block a move of that group are listed (same filter as
+  // checkState); pass nullptr for the full picture.
   std::vector<std::string> describeCollisions(
-    const std::map<std::string, double> & joint_values) const;
+    const std::map<std::string, double> & joint_values,
+    const std::set<std::string> * active_joints = nullptr) const;
 
   // --- world object management (thread-safe) -------------------------------
   // Free object, pose expressed in the planning (root) frame.

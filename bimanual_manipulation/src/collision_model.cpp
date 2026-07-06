@@ -814,7 +814,8 @@ bool CollisionModel::checkStateSpheres(
 }
 
 std::vector<std::string> CollisionModel::describeCollisions(
-  const std::map<std::string, double> & joint_values) const
+  const std::map<std::string, double> & joint_values,
+  const std::set<std::string> * active_joints) const
 {
   std::vector<std::string> out;
   if (!settings_.enabled) {return out;}
@@ -822,6 +823,17 @@ std::vector<std::string> CollisionModel::describeCollisions(
   computeLinkTransforms(joint_values, tf);
   const double margin = settings_.margin;
   const size_t kMax = 40;
+
+  // Same active-link filter as checkState, so only the relevant pairs show.
+  std::vector<char> active(nodes_.size(), active_joints ? 0 : 1);
+  if (active_joints) {
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      const int p = nodes_[i].parent;
+      if (p >= 0 && (active[p] || active_joints->count(nodes_[i].joint_name))) {
+        active[i] = 1;
+      }
+    }
+  }
 
   auto fmt = [](double m) {
       char buf[32];
@@ -835,6 +847,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
       centers[i] = tf[spheres_[i].node] * spheres_[i].center;
     }
     for (const auto & pr : check_node_pairs_) {
+      if (active_joints && !active[pr.first] && !active[pr.second]) {continue;}
       double worst = 1e9;
       for (int ia : spheres_by_node_[pr.first]) {
         for (int ib : spheres_by_node_[pr.second]) {
@@ -856,6 +869,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
         ((wo.attached_node >= 0) ?
         Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose).inverse();
       for (size_t i = 0; i < spheres_.size(); ++i) {
+        if (active_joints && !active[spheres_[i].node]) {continue;}
         if (pointToPrimitive(obj_inv * centers[i], wo.primitive) < spheres_[i].radius + margin) {
           out.push_back("object '" + wo.id + "' <-> " + nodes_[spheres_[i].node].name);
           if (out.size() >= kMax) {return out;}
@@ -881,6 +895,11 @@ std::vector<std::string> CollisionModel::describeCollisions(
   fcl::CollisionRequestd creq;
   fcl::CollisionResultd cres;
   for (const auto & pair : check_pairs_) {
+    if (active_joints && !active[shapes_[pair.first].node] &&
+      !active[shapes_[pair.second].node])
+    {
+      continue;
+    }
     cres.clear();
     fcl::collide(shape_objs_[pair.first].get(), shape_objs_[pair.second].get(), creq, cres);
     if (cres.isCollision()) {
@@ -898,6 +917,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
       wobj->computeAABB();
     }
     for (size_t i = 0; i < shape_objs_.size(); ++i) {
+      if (active_joints && !active[shapes_[i].node]) {continue;}
       cres.clear();
       fcl::collide(wobj, shape_objs_[i].get(), creq, cres);
       if (cres.isCollision()) {

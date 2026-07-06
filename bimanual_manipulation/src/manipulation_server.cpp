@@ -514,7 +514,8 @@ void ManipulationServer::logCollisions(
 {
   std::map<std::string, double> full = currentState();
   for (size_t i = 0; i < g.joints.size() && i < q.size(); ++i) {full[g.joints[i]] = q[i];}
-  const auto desc = collision_.describeCollisions(full);
+  const std::set<std::string> active(g.joints.begin(), g.joints.end());
+  const auto desc = collision_.describeCollisions(full, &active);
   if (desc.empty()) {
     RCLCPP_WARN(
       get_logger(), "[%s] %s reported in collision but no pair found (numerical edge case)",
