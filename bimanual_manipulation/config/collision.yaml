@@ -14,6 +14,13 @@
 
 collision:
   enabled: true
+  # Collision geometry mode:
+  #   mesh    -> FCL on the (decimated) meshes: exact, a bit slower.
+  #   spheres -> each link approximated by spheres, checked analytically:
+  #              much faster (best for planning), slightly conservative.
+  mode: spheres
+  sphere_voxel: 0.05          # sphere sampling resolution [m] (spheres mode)
+  sphere_radius_scale: 1.0    # inflate (>1) / deflate (<1) the spheres
   padding: 0.0          # primitive-only geometry inflation [m] (no effect on meshes)
   # Separation distance kept between any two elements (self + world objects,
   # meshes included). The robot is rejected from getting closer than this to

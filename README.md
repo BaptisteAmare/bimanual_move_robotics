@@ -136,6 +136,10 @@ Meshes: 33 loaded, 0 failed, NNNN collision triangles total.
   gripper pose is used as the gripper command.
 * **`collision.yaml`** — collision settings:
   * `enabled` — master on/off.
+  * `mode` — `mesh` (FCL on decimated meshes, exact) or `spheres` (each link
+    approximated by spheres, checked analytically — much faster for planning,
+    slightly conservative). `sphere_voxel` sets the sphere resolution [m] and
+    `sphere_radius_scale` inflates/deflates them.
   * `margin` — separation distance kept from everything (self + world objects,
     **meshes included**); the robot is rejected from getting closer than this.
     `0` = plain contact test (fastest), `0.02`–`0.05` gives a safety gap.

@@ -113,6 +113,9 @@ void parseCollision(const YAML::Node & root, ManipulationConfig & out)
   c.margin = col["margin"].as<double>(c.margin);
   c.resolution = col["resolution"].as<double>(c.resolution);
   c.mesh_decimation = col["mesh_decimation"].as<double>(c.mesh_decimation);
+  c.mode = col["mode"].as<std::string>(c.mode);
+  c.sphere_voxel = col["sphere_voxel"].as<double>(c.sphere_voxel);
+  c.sphere_radius_scale = col["sphere_radius_scale"].as<double>(c.sphere_radius_scale);
   const YAML::Node pairs = col["disabled_pairs"];
   if (pairs && pairs.IsSequence()) {
     for (const auto & p : pairs) {

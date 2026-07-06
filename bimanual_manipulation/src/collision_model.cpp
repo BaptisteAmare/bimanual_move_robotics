@@ -124,6 +124,38 @@ std::shared_ptr<fcl::CollisionGeometryd> loadMesh(
   }
 }
 
+// Load all mesh vertices (scaled) for the sphere approximation.
+std::vector<Eigen::Vector3d> loadMeshVertices(
+  const std::string & uri, const urdf::Vector3 & scale)
+{
+  std::vector<Eigen::Vector3d> out;
+  try {
+    resource_retriever::Retriever retriever;
+    resource_retriever::MemoryResource res = retriever.get(uri);
+    std::string ext;
+    const auto dot = uri.find_last_of('.');
+    if (dot != std::string::npos) {
+      ext = uri.substr(dot + 1);
+      for (auto & c : ext) {c = static_cast<char>(::tolower(c));}
+    }
+    Assimp::Importer importer;
+    const aiScene * scene = importer.ReadFileFromMemory(
+      res.data.get(), res.size, aiProcess_Triangulate, ext.c_str());
+    if (!scene || !scene->HasMeshes()) {return out;}
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+      const aiMesh * mesh = scene->mMeshes[m];
+      for (unsigned int v = 0; v < mesh->mNumVertices; ++v) {
+        const aiVector3D & p = mesh->mVertices[v];
+        out.emplace_back(p.x * scale.x, p.y * scale.y, p.z * scale.z);
+      }
+    }
+  } catch (const std::exception & e) {
+    std::fprintf(stderr, "[collision_model] failed to load mesh '%s': %s\n",
+      uri.c_str(), e.what());
+  }
+  return out;
+}
+
 }  // namespace
 
 std::shared_ptr<fcl::CollisionGeometryd> CollisionModel::makeGeometry(
@@ -194,7 +226,57 @@ bool CollisionModel::init(
     }
   }
 
-  // --- collision shapes per link ------------------------------------------
+  sphere_mode_ = (settings_.mode == "spheres");
+
+  // Shared: adjacency predicate + user-disabled pairs.
+  auto same_or_adjacent = [&](int na, int nb) {
+      if (na == nb) {return true;}
+      return nodes_[na].parent == nb || nodes_[nb].parent == na;
+    };
+  std::set<std::pair<std::string, std::string>> disabled;
+  for (const auto & d : settings_.disabled_pairs) {
+    disabled.insert(std::minmax(d.first, d.second));
+  }
+
+  // --- spheres mode: approximate each link with spheres, check analytically -
+  if (sphere_mode_) {
+    buildSpheres(model);
+
+    spheres_by_node_.assign(nodes_.size(), {});
+    for (size_t i = 0; i < spheres_.size(); ++i) {
+      spheres_by_node_[spheres_[i].node].push_back(static_cast<int>(i));
+    }
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      if (spheres_by_node_[i].empty()) {links_without_collision_.push_back(nodes_[i].name);}
+    }
+
+    // Per-node bounding sphere (link frame) for broad-phase rejection.
+    node_bound_center_.assign(nodes_.size(), Eigen::Vector3d::Zero());
+    node_bound_radius_.assign(nodes_.size(), 0.0);
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      const auto & si = spheres_by_node_[i];
+      if (si.empty()) {continue;}
+      Eigen::Vector3d c = Eigen::Vector3d::Zero();
+      for (int k : si) {c += spheres_[k].center;}
+      c /= static_cast<double>(si.size());
+      double r = 0.0;
+      for (int k : si) {r = std::max(r, (spheres_[k].center - c).norm() + spheres_[k].radius);}
+      node_bound_center_[i] = c;
+      node_bound_radius_[i] = r;
+    }
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      if (spheres_by_node_[i].empty()) {continue;}
+      for (size_t j = i + 1; j < nodes_.size(); ++j) {
+        if (spheres_by_node_[j].empty()) {continue;}
+        if (same_or_adjacent(static_cast<int>(i), static_cast<int>(j))) {continue;}
+        if (disabled.count(std::minmax(nodes_[i].name, nodes_[j].name))) {continue;}
+        check_node_pairs_.emplace_back(static_cast<int>(i), static_cast<int>(j));
+      }
+    }
+    return true;
+  }
+
+  // --- mesh mode: collision shapes per link (FCL) -------------------------
   const double pad = settings_.padding;
   auto build = [&](const urdf::GeometrySharedPtr & g)
     -> std::shared_ptr<fcl::CollisionGeometryd> {
@@ -261,16 +343,6 @@ bool CollisionModel::init(
   }
 
   // --- allowed (skipped) self-collision pairs ------------------------------
-  auto same_or_adjacent = [&](int na, int nb) {
-      if (na == nb) {return true;}
-      return nodes_[na].parent == nb || nodes_[nb].parent == na;
-    };
-
-  std::set<std::pair<std::string, std::string>> disabled;
-  for (const auto & d : settings_.disabled_pairs) {
-    disabled.insert(std::minmax(d.first, d.second));
-  }
-
   for (size_t i = 0; i < shapes_.size(); ++i) {
     for (size_t j = i + 1; j < shapes_.size(); ++j) {
       const int ni = shapes_[i].node;
@@ -283,6 +355,122 @@ bool CollisionModel::init(
   }
 
   return true;
+}
+
+void CollisionModel::buildSpheres(const urdf::Model & model)
+{
+  for (const auto & node : nodes_) {
+    urdf::LinkConstSharedPtr link = model.getLink(node.name);
+    if (!link) {continue;}
+    const int node_idx = node_index_[node.name];
+
+    std::vector<std::pair<urdf::GeometrySharedPtr, urdf::Pose>> geoms;
+    if (!link->collision_array.empty()) {
+      for (const auto & c : link->collision_array) {
+        if (c && c->geometry) {geoms.emplace_back(c->geometry, c->origin);}
+      }
+    } else {
+      for (const auto & v : link->visual_array) {
+        if (v && v->geometry) {geoms.emplace_back(v->geometry, v->origin);}
+      }
+      if (!geoms.empty()) {++visual_fallback_links_;}
+    }
+    for (const auto & [geometry, origin] : geoms) {
+      appendSpheresForGeometry(node_idx, geometry, urdfToEigen(origin));
+    }
+  }
+}
+
+void CollisionModel::appendSpheresForGeometry(
+  int node, const urdf::GeometrySharedPtr & g, const Eigen::Isometry3d & origin)
+{
+  const double voxel = std::max(settings_.sphere_voxel, 1e-3);
+  const double rscale = settings_.sphere_radius_scale;
+  auto add = [&](const Eigen::Vector3d & c_local, double r) {
+      spheres_.push_back(LinkSphere{node, Eigen::Vector3d(origin * c_local), r * rscale});
+    };
+
+  switch (g->type) {
+    case urdf::Geometry::SPHERE: {
+      auto s = std::dynamic_pointer_cast<urdf::Sphere>(g);
+      add(Eigen::Vector3d::Zero(), s->radius);
+      break;
+    }
+    case urdf::Geometry::BOX: {
+      auto b = std::dynamic_pointer_cast<urdf::Box>(g);
+      const Eigen::Vector3d dim(b->dim.x, b->dim.y, b->dim.z);
+      const int nx = std::max(1, static_cast<int>(std::ceil(dim.x() / voxel)));
+      const int ny = std::max(1, static_cast<int>(std::ceil(dim.y() / voxel)));
+      const int nz = std::max(1, static_cast<int>(std::ceil(dim.z() / voxel)));
+      const Eigen::Vector3d s(dim.x() / nx, dim.y() / ny, dim.z() / nz);
+      const double r = 0.5 * s.norm();  // covers a cell
+      for (int ix = 0; ix < nx; ++ix) {
+        for (int iy = 0; iy < ny; ++iy) {
+          for (int iz = 0; iz < nz; ++iz) {
+            add(Eigen::Vector3d(
+                -dim.x() / 2 + (ix + 0.5) * s.x(),
+                -dim.y() / 2 + (iy + 0.5) * s.y(),
+                -dim.z() / 2 + (iz + 0.5) * s.z()), r);
+          }
+        }
+      }
+      break;
+    }
+    case urdf::Geometry::CYLINDER: {
+      auto c = std::dynamic_pointer_cast<urdf::Cylinder>(g);
+      const int n = std::max(1, static_cast<int>(std::ceil(c->length / voxel)));
+      const double sz = c->length / n;
+      const double r = std::sqrt(c->radius * c->radius + 0.25 * sz * sz);
+      for (int k = 0; k < n; ++k) {
+        add(Eigen::Vector3d(0, 0, -c->length / 2 + (k + 0.5) * sz), r);
+      }
+      break;
+    }
+    case urdf::Geometry::MESH: {
+      auto m = std::dynamic_pointer_cast<urdf::Mesh>(g);
+      ++meshes_total_;
+      const auto verts = loadMeshVertices(m->filename, m->scale);
+      if (verts.empty()) {++meshes_failed_; break;}
+
+      // Cluster vertices on a voxel grid -> one sphere per occupied cell.
+      const double inv = 1.0 / voxel;
+      std::map<std::tuple<int, int, int>, int> cell;
+      std::vector<Eigen::Vector3d> sum;
+      std::vector<int> cnt;
+      std::vector<int> vcell(verts.size());
+      for (size_t i = 0; i < verts.size(); ++i) {
+        const auto key = std::make_tuple(
+          static_cast<int>(std::floor(verts[i].x() * inv)),
+          static_cast<int>(std::floor(verts[i].y() * inv)),
+          static_cast<int>(std::floor(verts[i].z() * inv)));
+        auto it = cell.find(key);
+        int idx;
+        if (it == cell.end()) {
+          idx = static_cast<int>(sum.size());
+          cell.emplace(key, idx);
+          sum.push_back(verts[i]);
+          cnt.push_back(1);
+        } else {
+          idx = it->second;
+          sum[idx] += verts[i];
+          ++cnt[idx];
+        }
+        vcell[i] = idx;
+      }
+      std::vector<Eigen::Vector3d> cen(sum.size());
+      for (size_t k = 0; k < sum.size(); ++k) {cen[k] = sum[k] / cnt[k];}
+      std::vector<double> maxd(sum.size(), 0.0);
+      for (size_t i = 0; i < verts.size(); ++i) {
+        maxd[vcell[i]] = std::max(maxd[vcell[i]], (verts[i] - cen[vcell[i]]).norm());
+      }
+      for (size_t k = 0; k < cen.size(); ++k) {
+        add(cen[k], std::max(maxd[k], voxel * 0.25));
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 void CollisionModel::computeLinkTransforms(
@@ -349,6 +537,16 @@ bool CollisionModel::checkStateImpl(
     }
   }
 
+  if (sphere_mode_) {
+    return checkStateSpheres(tf, active, active_joints);
+  }
+  return checkStateMesh(tf, active, active_joints);
+}
+
+bool CollisionModel::checkStateMesh(
+  const std::vector<Eigen::Isometry3d> & tf,
+  const std::vector<char> & active, const std::set<std::string> * active_joints) const
+{
   // Build the reusable FCL objects once, then just refresh their transforms.
   if (shape_objs_.size() != shapes_.size()) {
     shape_objs_.clear();
@@ -416,6 +614,99 @@ bool CollisionModel::checkStateImpl(
         }
       }
       if (tooClose(wobj, shape_objs_[i].get())) {return false;}
+    }
+  }
+
+  return true;
+}
+
+namespace
+{
+// Signed distance from a point (already in the primitive's local frame) to the
+// surface of a solid primitive. Negative inside. Only the sign/magnitude near 0
+// matters for our threshold test.
+double pointToPrimitive(
+  const Eigen::Vector3d & p, const shape_msgs::msg::SolidPrimitive & prim)
+{
+  using SP = shape_msgs::msg::SolidPrimitive;
+  const auto & d = prim.dimensions;
+  switch (prim.type) {
+    case SP::BOX: {
+      if (d.size() < 3) {return 1e9;}
+      const Eigen::Vector3d h(d[SP::BOX_X] / 2, d[SP::BOX_Y] / 2, d[SP::BOX_Z] / 2);
+      const Eigen::Vector3d q = p.cwiseAbs() - h;
+      const double outside = q.cwiseMax(0.0).norm();
+      const double inside = std::min(std::max({q.x(), q.y(), q.z()}), 0.0);
+      return outside + inside;   // >0 outside, <0 inside
+    }
+    case SP::SPHERE:
+      return d.empty() ? 1e9 : p.norm() - d[SP::SPHERE_RADIUS];
+    case SP::CYLINDER: {
+      if (d.size() < 2) {return 1e9;}
+      const double radial = std::hypot(p.x(), p.y()) - d[SP::CYLINDER_RADIUS];
+      const double axial = std::abs(p.z()) - d[SP::CYLINDER_HEIGHT] / 2;
+      if (radial <= 0 && axial <= 0) {return std::max(radial, axial);}   // inside
+      const double ro = std::max(radial, 0.0), ao = std::max(axial, 0.0);
+      return std::hypot(ro, ao);
+    }
+    default:
+      return 1e9;
+  }
+}
+}  // namespace
+
+bool CollisionModel::checkStateSpheres(
+  const std::vector<Eigen::Isometry3d> & tf,
+  const std::vector<char> & active, const std::set<std::string> * active_joints) const
+{
+  const double margin = settings_.margin;
+
+  // World-frame centers of every sphere for this configuration.
+  std::vector<Eigen::Vector3d> centers(spheres_.size());
+  for (size_t i = 0; i < spheres_.size(); ++i) {
+    centers[i] = tf[spheres_[i].node] * spheres_[i].center;
+  }
+  // World-frame node bounding-sphere centers (for broad-phase reject).
+  std::vector<Eigen::Vector3d> wbc(nodes_.size());
+  for (size_t i = 0; i < nodes_.size(); ++i) {
+    if (!spheres_by_node_[i].empty()) {wbc[i] = tf[i] * node_bound_center_[i];}
+  }
+
+  // --- self collision: analytic sphere-sphere over the link pairs ----------
+  for (const auto & pr : check_node_pairs_) {
+    if (active_joints && !active[pr.first] && !active[pr.second]) {continue;}
+    // Broad-phase: skip the pair when their bounding spheres are far apart.
+    if ((wbc[pr.first] - wbc[pr.second]).norm() >
+      node_bound_radius_[pr.first] + node_bound_radius_[pr.second] + margin)
+    {
+      continue;
+    }
+    for (int ia : spheres_by_node_[pr.first]) {
+      for (int ib : spheres_by_node_[pr.second]) {
+        const double d = (centers[ia] - centers[ib]).norm();
+        if (d < spheres_[ia].radius + spheres_[ib].radius + margin) {return false;}
+      }
+    }
+  }
+
+  // --- world objects: sphere vs primitive ----------------------------------
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  for (const auto & wo : world_) {
+    const Eigen::Isometry3d obj_tf =
+      (wo.attached_node >= 0) ? Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose;
+    const Eigen::Isometry3d obj_inv = obj_tf.inverse();
+    for (size_t i = 0; i < spheres_.size(); ++i) {
+      const int sn = spheres_[i].node;
+      if (active_joints && !active[sn]) {continue;}
+      if (wo.attached_node >= 0) {
+        if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
+          nodes_[wo.attached_node].parent == sn)
+        {
+          continue;
+        }
+      }
+      const double d = pointToPrimitive(obj_inv * centers[i], wo.primitive);
+      if (d < spheres_[i].radius + margin) {return false;}
     }
   }
 

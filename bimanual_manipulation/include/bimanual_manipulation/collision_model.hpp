@@ -71,8 +71,12 @@ public:
   bool enabled() const {return settings_.enabled;}
 
   // Diagnostics (valid after init()).
-  size_t shapeCount() const {return shapes_.size();}
-  size_t checkPairCount() const {return check_pairs_.size();}
+  size_t shapeCount() const {return sphere_mode_ ? spheres_.size() : shapes_.size();}
+  size_t checkPairCount() const
+  {
+    return sphere_mode_ ? check_node_pairs_.size() : check_pairs_.size();
+  }
+  bool sphereMode() const {return sphere_mode_;}
   size_t visualFallbackCount() const {return visual_fallback_links_;}
   size_t meshTotal() const {return meshes_total_;}
   size_t meshFailed() const {return meshes_failed_;}
@@ -102,6 +106,14 @@ private:
     Eigen::Isometry3d origin;        // link -> shape
   };
 
+  // A sphere approximating part of a link (spheres mode).
+  struct LinkSphere
+  {
+    int node;                        // index into nodes_
+    Eigen::Vector3d center;          // in the link frame
+    double radius;
+  };
+
   struct WorldObject
   {
     std::string id;
@@ -119,19 +131,40 @@ private:
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
 
+  // Build the per-link sphere approximation (spheres mode).
+  void buildSpheres(const urdf::Model & model);
+  void appendSpheresForGeometry(
+    int node, const urdf::GeometrySharedPtr & geom, const Eigen::Isometry3d & origin);
+
   bool checkStateImpl(
     const std::map<std::string, double> & joint_values,
     const std::set<std::string> * active_joints) const;
+  bool checkStateMesh(
+    const std::vector<Eigen::Isometry3d> & tf,
+    const std::vector<char> & active, const std::set<std::string> * active_joints) const;
+  bool checkStateSpheres(
+    const std::vector<Eigen::Isometry3d> & tf,
+    const std::vector<char> & active, const std::set<std::string> * active_joints) const;
 
   CollisionSettings settings_;
   std::string root_frame_;
 
   std::vector<LinkNode> nodes_;
   std::map<std::string, int> node_index_;
+  bool sphere_mode_ = false;
   std::vector<LinkShape> shapes_;
   // Reusable FCL objects for the robot shapes: built once, only their transform
   // is refreshed per check (avoids reallocating 33 objects on every query).
   mutable std::vector<std::shared_ptr<fcl::CollisionObjectd>> shape_objs_;
+
+  // Spheres mode.
+  std::vector<LinkSphere> spheres_;
+  std::vector<std::vector<int>> spheres_by_node_;   // node -> sphere indices
+  std::vector<std::pair<int, int>> check_node_pairs_;  // node pairs to test
+  // Per-node bounding sphere (link frame) for a cheap broad-phase reject.
+  std::vector<Eigen::Vector3d> node_bound_center_;
+  std::vector<double> node_bound_radius_;
+
   std::vector<std::string> links_without_collision_;
   size_t visual_fallback_links_ = 0;
   size_t meshes_total_ = 0;

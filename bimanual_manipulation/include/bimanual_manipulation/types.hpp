@@ -57,6 +57,11 @@ struct CollisionSettings
   // collision-check time) on detailed meshes. 0 disables it.
   double mesh_decimation = 0.02;
   bool enabled = true;
+  // Collision geometry mode: "mesh" (FCL, exact) or "spheres" (each link
+  // approximated by spheres for much faster, analytic checks).
+  std::string mode = "mesh";
+  double sphere_voxel = 0.05;        // sphere sampling resolution [m] (spheres mode)
+  double sphere_radius_scale = 1.0;  // inflate/deflate the generated spheres
   // Pairs of links whose mutual collisions are ignored (like an SRDF ACM).
   std::vector<std::pair<std::string, std::string>> disabled_pairs;
 };

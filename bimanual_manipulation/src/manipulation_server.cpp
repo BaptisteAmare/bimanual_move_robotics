@@ -116,8 +116,9 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
   }
 
   RCLCPP_INFO(
-    get_logger(), "Collision model: %zu shapes, %zu link pairs checked.",
-    collision_.shapeCount(), collision_.checkPairCount());
+    get_logger(), "Collision model (%s): %zu %s, %zu link pairs checked.",
+    collision_.sphereMode() ? "spheres" : "mesh", collision_.shapeCount(),
+    collision_.sphereMode() ? "spheres" : "shapes", collision_.checkPairCount());
   if (collision_.visualFallbackCount() > 0) {
     RCLCPP_INFO(
       get_logger(), "%zu link(s) had no <collision> and use <visual> geometry instead.",

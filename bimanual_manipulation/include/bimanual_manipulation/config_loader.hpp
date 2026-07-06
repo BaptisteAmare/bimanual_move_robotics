@@ -30,7 +30,7 @@ struct PlanningDefaults
   // moves are never re-routed (they must stay straight).
   bool avoid_obstacles = true;
   int rrt_max_iterations = 4000;
-  double rrt_step = 0.25;             // [rad]
+  double rrt_step = 0.35;             // [rad]
   // Coarser collision step used DURING the RRT search (speed). The final path
   // is re-validated at collision.resolution before execution (safety).
   double rrt_edge_resolution = 0.06;  // [rad]

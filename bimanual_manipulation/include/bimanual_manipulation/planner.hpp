@@ -18,7 +18,7 @@ struct RRTConnectOptions
   double step_size = 0.25;       // tree extension step [rad]
   double edge_resolution = 0.02; // collision check step along an edge [rad]
   int max_iterations = 4000;
-  int shortcut_iterations = 200; // path smoothing attempts
+  int shortcut_iterations = 60;  // path smoothing attempts
   unsigned seed = 88172645u;
 };
 
