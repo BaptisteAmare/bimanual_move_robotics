@@ -713,6 +713,102 @@ bool CollisionModel::checkStateSpheres(
   return true;
 }
 
+std::vector<std::string> CollisionModel::describeCollisions(
+  const std::map<std::string, double> & joint_values) const
+{
+  std::vector<std::string> out;
+  if (!settings_.enabled) {return out;}
+  std::vector<Eigen::Isometry3d> tf;
+  computeLinkTransforms(joint_values, tf);
+  const double margin = settings_.margin;
+  const size_t kMax = 40;
+
+  auto fmt = [](double m) {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%.3f", m);
+      return std::string(buf);
+    };
+
+  if (sphere_mode_) {
+    std::vector<Eigen::Vector3d> centers(spheres_.size());
+    for (size_t i = 0; i < spheres_.size(); ++i) {
+      centers[i] = tf[spheres_[i].node] * spheres_[i].center;
+    }
+    for (const auto & pr : check_node_pairs_) {
+      double worst = 1e9;
+      for (int ia : spheres_by_node_[pr.first]) {
+        for (int ib : spheres_by_node_[pr.second]) {
+          const double gap = (centers[ia] - centers[ib]).norm() -
+            (spheres_[ia].radius + spheres_[ib].radius);
+          worst = std::min(worst, gap);
+        }
+      }
+      if (worst < margin) {
+        out.push_back(
+          "self: " + nodes_[pr.first].name + " <-> " + nodes_[pr.second].name +
+          " (overlap " + fmt(-worst) + " m)");
+        if (out.size() >= kMax) {return out;}
+      }
+    }
+    std::lock_guard<std::mutex> lock(world_mutex_);
+    for (const auto & wo : world_) {
+      const Eigen::Isometry3d obj_inv =
+        ((wo.attached_node >= 0) ?
+        Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose).inverse();
+      for (size_t i = 0; i < spheres_.size(); ++i) {
+        if (pointToPrimitive(obj_inv * centers[i], wo.primitive) < spheres_[i].radius + margin) {
+          out.push_back("object '" + wo.id + "' <-> " + nodes_[spheres_[i].node].name);
+          if (out.size() >= kMax) {return out;}
+          break;  // one report per object/link is enough
+        }
+      }
+    }
+    return out;
+  }
+
+  // Mesh mode.
+  if (shape_objs_.size() != shapes_.size()) {
+    shape_objs_.clear();
+    for (const auto & s : shapes_) {
+      shape_objs_.push_back(
+        std::make_shared<fcl::CollisionObjectd>(s.geom, Eigen::Isometry3d::Identity()));
+    }
+  }
+  for (size_t i = 0; i < shapes_.size(); ++i) {
+    shape_objs_[i]->setTransform(Eigen::Isometry3d(tf[shapes_[i].node] * shapes_[i].origin));
+    shape_objs_[i]->computeAABB();
+  }
+  fcl::CollisionRequestd creq;
+  fcl::CollisionResultd cres;
+  for (const auto & pair : check_pairs_) {
+    cres.clear();
+    fcl::collide(shape_objs_[pair.first].get(), shape_objs_[pair.second].get(), creq, cres);
+    if (cres.isCollision()) {
+      out.push_back(
+        "self: " + nodes_[shapes_[pair.first].node].name + " <-> " +
+        nodes_[shapes_[pair.second].node].name);
+      if (out.size() >= kMax) {return out;}
+    }
+  }
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  for (const auto & wo : world_) {
+    fcl::CollisionObjectd * wobj = wo.obj.get();
+    if (wo.attached_node >= 0) {
+      wobj->setTransform(Eigen::Isometry3d(tf[wo.attached_node] * wo.pose));
+      wobj->computeAABB();
+    }
+    for (size_t i = 0; i < shape_objs_.size(); ++i) {
+      cres.clear();
+      fcl::collide(wobj, shape_objs_[i].get(), creq, cres);
+      if (cres.isCollision()) {
+        out.push_back("object '" + wo.id + "' <-> " + nodes_[shapes_[i].node].name);
+        if (out.size() >= kMax) {return out;}
+      }
+    }
+  }
+  return out;
+}
+
 bool CollisionModel::addObject(
   const std::string & id, const shape_msgs::msg::SolidPrimitive & primitive,
   const Eigen::Isometry3d & pose, std::string & error)

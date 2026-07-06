@@ -343,6 +343,12 @@ bool ManipulationServer::computeStepPath(
       std::string perr;
       if (!planRRTConnect(bounds, start, target, valid, opt, sparse, perr)) {
         error = "could not plan a collision-free path: " + perr;
+        // Report exactly what collides so the cause is clear.
+        if (perr.find("start") != std::string::npos) {
+          logCollisions(g, start, "start configuration");
+        } else if (perr.find("goal") != std::string::npos) {
+          logCollisions(g, target, "goal configuration");
+        }
         return false;
       }
 
@@ -498,6 +504,23 @@ bool ManipulationServer::executeGripperStep(
   return move_groups_.at(g.name)->executeGripper(
     position, get_parameter("gripper_max_effort").as_double(),
     config_.defaults.execution_timeout, error);
+}
+
+void ManipulationServer::logCollisions(
+  const GroupConfig & g, const std::vector<double> & q, const char * label)
+{
+  std::map<std::string, double> full = currentState();
+  for (size_t i = 0; i < g.joints.size() && i < q.size(); ++i) {full[g.joints[i]] = q[i];}
+  const auto desc = collision_.describeCollisions(full);
+  if (desc.empty()) {
+    RCLCPP_WARN(
+      get_logger(), "[%s] %s reported in collision but no pair found (numerical edge case)",
+      g.name.c_str(), label);
+    return;
+  }
+  RCLCPP_WARN(get_logger(), "[%s] %s is in collision — %zu pair(s):", g.name.c_str(), label,
+    desc.size());
+  for (const auto & s : desc) {RCLCPP_WARN(get_logger(), "    - %s", s.c_str());}
 }
 
 bool ManipulationServer::executeFollow(

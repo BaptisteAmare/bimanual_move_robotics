@@ -75,6 +75,9 @@ private:
 
   bool executeGripperStep(const GroupConfig & g, const MotionStep & step, std::string & error);
 
+  // Log which link/object pairs collide at a group configuration (diagnostics).
+  void logCollisions(const GroupConfig & g, const std::vector<double> & q, const char * label);
+
   // Continuously servo the group tip to a (moving) TF frame until a stop
   // condition (timeout / settle / stop topic) or the action is canceled.
   bool executeFollow(const GroupConfig & g, const MotionStep & step, std::string & error);
