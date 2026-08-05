@@ -35,6 +35,9 @@ struct GroupConfig
   std::string tip_link;              // kinematic chain tip (Cartesian groups)
   std::vector<std::string> joints;   // ordered joints owned by the group
   std::vector<ControllerConfig> controllers;
+  // Cartesian-capable subgroups (e.g. [left_arm, right_arm]) whose tips move
+  // together under one shared translation — dual-arm coordinated Cartesian.
+  std::vector<std::string> cartesian_subgroups;
 
   double default_velocity_scaling = 0.3;
   double default_acceleration_scaling = 0.3;

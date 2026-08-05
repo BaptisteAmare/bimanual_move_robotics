@@ -208,6 +208,19 @@ type `2`, the goal pose is taken in `reference_frame` (any TF frame) when set,
 else relative to the current tip when `relative:true`, else in the arm's base
 frame.
 
+**Dual-arm coordinated Cartesian.** A group with `cartesian_subgroups`
+(e.g. `both_arms: {cartesian_subgroups: [left_arm, right_arm]}`) accepts a
+type-`2` step whose `offset: [dx,dy,dz]` translates **both** tips by the same
+vector, in the shared base frame, sampled together so the arms stay in sync.
+The relative pose between the hands is preserved, so a two-handed grasp moves
+rigidly. Orientation is kept; it is a pure straight-line translation (no RRT
+reroute). Example — lift an object held in both hands by 15 cm:
+
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 2, group: both_arms, offset: {x: 0.0, y: 0.0, z: 0.15}}}"
+```
+
 ### `~/execute_sequence` — `bimanual_msgs/action/ExecuteSequence`
 Run a predefined or inline sequence (approach → grasp → retreat …).
 

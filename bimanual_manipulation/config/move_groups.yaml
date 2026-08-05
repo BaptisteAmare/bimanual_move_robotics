@@ -71,8 +71,13 @@ groups:
         type: follow_joint_trajectory
 
   # Both arms commanded at once: one joint-space goal, split across the two
-  # arm controllers so they move simultaneously. No tip_link -> joint/named only.
+  # arm controllers so they move simultaneously. No tip_link -> joint/named
+  # moves; but with cartesian_subgroups it ALSO does dual-arm coordinated
+  # Cartesian: a type-2 step with offset [dx,dy,dz] translates BOTH tips by the
+  # same vector at once (carry an object with two hands, keeping the hands'
+  # relative pose fixed).
   both_arms:
+    cartesian_subgroups: [left_arm, right_arm]
     joints:
       - L_shoulder_pitch_joint
       - L_shoulder_roll_joint

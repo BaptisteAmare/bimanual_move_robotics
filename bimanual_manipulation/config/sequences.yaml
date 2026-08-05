@@ -42,6 +42,14 @@ sequences:
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 0.4}
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.20], cartesian_path: true}
 
+  # Two-handed carry: with cartesian_subgroups set on both_arms, a cartesian
+  # step translates BOTH tips by the same offset [dx,dy,dz] (in the arms' base
+  # frame) at the same time, keeping the hands' relative pose fixed — i.e. the
+  # grasped object moves rigidly. Requires the object already held by both hands.
+  carry_up_and_forward:
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # lift 15 cm
+    - {type: cartesian, group: both_arms, offset: [0.20, 0.0, 0.0]}   # then 20 cm forward
+
   # Track a moving TF frame, then move on. The follow step continuously servos
   # the left tip to (moving_target * delta) and stops when the tip stays within
   # 3 cm of the target for 1 s (object reached/stopped), or after 15 s, or when
