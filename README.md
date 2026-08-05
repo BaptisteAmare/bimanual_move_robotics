@@ -154,8 +154,12 @@ Meshes: 33 loaded, 0 failed, NNNN collision triangles total.
     "Default"/"Always in collision"). Fixes false positives the SRDF / adjacency
     didn't cover (shoulder-against-torso, pelvis packaging, etc.), especially in
     `spheres` mode. The disabled pairs are listed at startup.
+  * `self_chain_distance` (default 1) — skip self-collision between links that
+    are ancestor/descendant on the same chain within this many joints. `2` also
+    skips a link vs its grandparent (elbow vs wrist on one arm), which is safe
+    for serial segments and clears sphere false positives along an arm/leg.
   * `disabled_pairs` — SRDF-style list of link pairs to ignore (in addition to
-    the SRDF, the auto-disable pass, and parent/child adjacency).
+    the SRDF, the auto-disable pass, and the chain-distance skip).
 * **`sequences.yaml`** — named lists of steps (`named` / `joint` / `cartesian` /
   `gripper`), e.g. `pick_above_object`, `both_ready`.
 

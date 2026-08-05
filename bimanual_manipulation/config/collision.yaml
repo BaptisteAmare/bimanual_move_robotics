@@ -28,6 +28,11 @@ collision:
   # Set false to rely only on the SRDF.
   auto_disable: true
   auto_disable_samples: 50
+  # Skip self-collision between links that are ancestor/descendant on the SAME
+  # chain within this many joints. 1 = only adjacent links; 2 also skips a link
+  # vs its "grandparent" (e.g. elbow vs wrist on the same arm) — safe for serial
+  # segments and removes sphere-approximation false positives along an arm/leg.
+  self_chain_distance: 2
   padding: 0.0          # primitive-only geometry inflation [m] (no effect on meshes)
   # Separation distance kept between any two elements (self + world objects,
   # meshes included). The robot is rejected from getting closer than this to

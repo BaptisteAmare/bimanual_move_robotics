@@ -118,6 +118,7 @@ void parseCollision(const YAML::Node & root, ManipulationConfig & out)
   c.sphere_radius_scale = col["sphere_radius_scale"].as<double>(c.sphere_radius_scale);
   c.auto_disable = col["auto_disable"].as<bool>(c.auto_disable);
   c.auto_disable_samples = col["auto_disable_samples"].as<int>(c.auto_disable_samples);
+  c.self_chain_distance = col["self_chain_distance"].as<int>(c.self_chain_distance);
   const YAML::Node pairs = col["disabled_pairs"];
   if (pairs && pairs.IsSequence()) {
     for (const auto & p : pairs) {

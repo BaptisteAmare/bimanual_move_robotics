@@ -66,6 +66,11 @@ struct CollisionSettings
   // (structural / permanent contacts), like MoveIt's "Always in collision".
   bool auto_disable = true;
   int auto_disable_samples = 50;
+  // Skip self-collision between links that are ancestor/descendant on the same
+  // kinematic chain within this many joints. 1 = only directly-adjacent links
+  // (default). 2 also skips a link vs its "grandparent" (e.g. elbow vs wrist on
+  // the same arm) — safe for serial segments, removes sphere false positives.
+  int self_chain_distance = 1;
   // Pairs of links whose mutual collisions are ignored (like an SRDF ACM).
   std::vector<std::pair<std::string, std::string>> disabled_pairs;
 };

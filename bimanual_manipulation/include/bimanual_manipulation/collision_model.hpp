@@ -141,6 +141,10 @@ private:
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
 
+  // Number of parent hops if one node is an ancestor of the other on the same
+  // chain (0 = same, 1 = parent/child, ...), or -1 if not in the same lineage.
+  int chainDistance(int a, int b) const;
+
   // Remove from the check lists the pairs that are in collision in the default
   // pose or in every sampled config (permanent structural contacts), matching
   // MoveIt's "Default"/"Always in collision".

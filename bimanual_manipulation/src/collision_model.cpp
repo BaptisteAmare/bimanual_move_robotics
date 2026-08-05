@@ -230,10 +230,10 @@ bool CollisionModel::init(
 
   sphere_mode_ = (settings_.mode == "spheres");
 
-  // Shared: adjacency predicate + user-disabled pairs.
+  // Shared: same-chain proximity predicate + user-disabled pairs.
   auto same_or_adjacent = [&](int na, int nb) {
-      if (na == nb) {return true;}
-      return nodes_[na].parent == nb || nodes_[nb].parent == na;
+      const int cd = chainDistance(na, nb);
+      return cd >= 0 && cd <= settings_.self_chain_distance;
     };
   std::set<std::pair<std::string, std::string>> disabled;
   for (const auto & d : settings_.disabled_pairs) {
@@ -586,6 +586,15 @@ void CollisionModel::appendSpheresForGeometry(
     default:
       break;
   }
+}
+
+int CollisionModel::chainDistance(int a, int b) const
+{
+  int d = 0;
+  for (int x = b; x >= 0; x = nodes_[x].parent, ++d) {if (x == a) {return d;}}
+  d = 0;
+  for (int x = a; x >= 0; x = nodes_[x].parent, ++d) {if (x == b) {return d;}}
+  return -1;
 }
 
 void CollisionModel::computeLinkTransforms(
