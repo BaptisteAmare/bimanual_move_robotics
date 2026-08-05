@@ -273,13 +273,13 @@
     </group_state>
     <!--END EFFECTOR: Purpose: Represent information about an end effector.-->
      <end_effector name="left_hand_ee"
-                  parent_link="left_crf_box_grasp_frame"
+                  parent_link="L_wrist_roll_link"
                   group="left_hand"
                   parent_group="left_arm_with_torso"/>
 
     <!-- right_hand_ee : group passe à right_manipulator car right_hand est rigide -->
     <end_effector name="right_hand_ee"
-                  parent_link="right_crf_box_grasp_frame"
+                  parent_link="R_wrist_roll_link"
                   group="right_arm_with_torso"
                   parent_group="right_arm_with_torso"/>
     <!--VIRTUAL JOINT: Purpose: this element defines a virtual joint between a robot link and an external frame of reference (considered fixed with respect to the robot)-->

@@ -76,3 +76,14 @@ sequences:
     - {type: cartesian, group: left_arm, reference_frame: target_object,
        position: [0.0, 0.0, 0.02], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: true,
        velocity_scaling: 0.1}
+
+  ceva_box_pick:
+    - {type: named, group: both_arms, named: safe_above_table}
+    - {type: named, group: both_arms, named: pre_grasp}
+    - {type: cartesian, group: left_arm, reference_frame: box,
+       position: [0.0, 0.4, 0.0], cartesian_path: false}
+    - {type: cartesian, group: right_arm, reference_frame: box,
+       position: [0.0, -0.4, 0.0], cartesian_path: false}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 1.0}
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.20, 0.0], cartesian_path: true}
+    

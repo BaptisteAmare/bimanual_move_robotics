@@ -40,7 +40,7 @@ groups:
 
   left_arm:
     base_link: torso_link
-    tip_link: L_wrist_roll_link
+    tip_link: L_industrial_hand_contact_frame
     cartesian_step: 0.005
     joints:
       - L_shoulder_pitch_joint
@@ -56,7 +56,7 @@ groups:
 
   right_arm:
     base_link: torso_link
-    tip_link: R_wrist_roll_link
+    tip_link: R_industrial_hand_contact_frame
     cartesian_step: 0.005
     joints:
       - R_shoulder_pitch_joint
