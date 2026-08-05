@@ -31,8 +31,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'sequences_config', default_value=os.path.join(cfg, 'sequences.yaml')),
         DeclareLaunchArgument(
-            'srdf_config', default_value='',
-            description='Optional MoveIt .srdf; its disable_collisions feed the ACM.'),
+            'srdf_config', default_value=os.path.join(cfg, 'walker_s2_augmented.srdf'),
+            description='MoveIt .srdf; its disable_collisions feed the ACM. '
+                        'Set to "" to disable, or override with your own.'),
         DeclareLaunchArgument('robot_description', default_value=''),
         DeclareLaunchArgument(
             'robot_description_file', default_value='',
