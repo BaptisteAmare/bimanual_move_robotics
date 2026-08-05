@@ -410,6 +410,74 @@ bool ManipulationServer::computeStepPath(
     return jointWithFallback(target);
   }
 
+  // Dual-arm coordinated Cartesian: apply ONE shared translation (step.offset)
+  // to every subgroup tip simultaneously, so a two-handed grasp translates
+  // rigidly (the relative pose between the hands is preserved). Orientation is
+  // kept; both arms are sampled together so they finish in sync.
+  if (step.type == MotionStep::TYPE_CARTESIAN && !g.cartesian_subgroups.empty()) {
+    const Eigen::Vector3d delta(step.offset.x, step.offset.y, step.offset.z);
+    struct Sub
+    {
+      std::shared_ptr<GroupKinematics> kin;
+      std::vector<int> idx;            // subgroup joint -> index in g.joints
+      std::vector<double> seed;
+      Eigen::Isometry3d tip0;
+    };
+    std::vector<Sub> subs;
+    for (const auto & sname : g.cartesian_subgroups) {
+      auto kit = kinematics_.find(sname);
+      auto git = config_.groups.find(sname);
+      if (kit == kinematics_.end() || git == config_.groups.end()) {
+        error = "cartesian_subgroup '" + sname + "' is unknown or not Cartesian capable";
+        return false;
+      }
+      Sub sub;
+      sub.kin = kit->second;
+      for (const auto & jn : git->second.joints) {
+        auto it = std::find(g.joints.begin(), g.joints.end(), jn);
+        if (it == g.joints.end()) {
+          error = "subgroup joint '" + jn + "' is not a joint of group '" + g.name + "'";
+          return false;
+        }
+        sub.idx.push_back(static_cast<int>(it - g.joints.begin()));
+      }
+      sub.seed.resize(sub.idx.size());
+      for (size_t k = 0; k < sub.idx.size(); ++k) {sub.seed[k] = start[sub.idx[k]];}
+      if (!sub.kin->fkTip(sub.seed, sub.tip0)) {
+        error = "forward kinematics failed for subgroup '" + sname + "'";
+        return false;
+      }
+      subs.push_back(std::move(sub));
+    }
+
+    const int M = std::max(1, static_cast<int>(std::ceil(delta.norm() / std::max(g.cartesian_step, 1e-4))));
+    path.clear();
+    path.push_back(start);
+    for (int s = 1; s <= M; ++s) {
+      const double f = static_cast<double>(s) / M;
+      std::vector<double> full = start;
+      for (size_t si = 0; si < subs.size(); ++si) {
+        Eigen::Isometry3d goal = subs[si].tip0;
+        goal.translation() += delta * f;   // same translation, base frame, no rotation
+        std::vector<double> qsub;
+        if (!subs[si].kin->ik(goal, subs[si].seed, qsub, /*limit_jump=*/true)) {
+          error = "coordinated Cartesian: IK failed for subgroup '" +
+            g.cartesian_subgroups[si] + "' at " + std::to_string(f * delta.norm()) + " m";
+          return false;
+        }
+        for (size_t k = 0; k < subs[si].idx.size(); ++k) {full[subs[si].idx[k]] = qsub[k];}
+        subs[si].seed = qsub;
+      }
+      if (!valid(full)) {
+        error = "coordinated Cartesian: collision at " +
+          std::to_string(f * delta.norm()) + " m along the move";
+        return false;
+      }
+      path.push_back(std::move(full));
+    }
+    return true;
+  }
+
   if (step.type == MotionStep::TYPE_CARTESIAN) {
     if (!g.cartesian || !kinematics_.count(g.name)) {
       error = "group '" + g.name + "' is not Cartesian capable";
