@@ -394,6 +394,7 @@ void CollisionModel::autoDisableAlwaysColliding(const urdf::Model & model)
 
   if (sphere_mode_) {
     std::vector<int> cnt(check_node_pairs_.size(), 0);
+    std::vector<char> at_default(check_node_pairs_.size(), 0);
     std::vector<Eigen::Vector3d> centers(spheres_.size());
     for (int s = 0; s < N; ++s) {
       computeLinkTransforms(sample(s), tf);
@@ -414,12 +415,18 @@ void CollisionModel::autoDisableAlwaysColliding(const urdf::Model & model)
           }
           if (hit) {break;}
         }
-        if (hit) {++cnt[pi];}
+        if (hit) {++cnt[pi]; if (s == 0) {at_default[pi] = 1;}}
       }
     }
     std::vector<std::pair<int, int>> kept;
     for (size_t pi = 0; pi < check_node_pairs_.size(); ++pi) {
-      if (cnt[pi] >= N) {++auto_disabled_;} else {kept.push_back(check_node_pairs_[pi]);}
+      const auto & pr = check_node_pairs_[pi];
+      if (at_default[pi] || cnt[pi] >= N) {
+        ++auto_disabled_;
+        auto_disabled_names_.push_back(nodes_[pr.first].name + " <-> " + nodes_[pr.second].name);
+      } else {
+        kept.push_back(pr);
+      }
     }
     check_node_pairs_.swap(kept);
     return;
@@ -436,6 +443,7 @@ void CollisionModel::autoDisableAlwaysColliding(const urdf::Model & model)
   fcl::CollisionRequestd creq;
   fcl::CollisionResultd cres;
   std::vector<int> cnt(check_pairs_.size(), 0);
+  std::vector<char> at_default(check_pairs_.size(), 0);
   for (int s = 0; s < N; ++s) {
     computeLinkTransforms(sample(s), tf);
     for (size_t i = 0; i < shapes_.size(); ++i) {
@@ -447,12 +455,19 @@ void CollisionModel::autoDisableAlwaysColliding(const urdf::Model & model)
       fcl::collide(
         shape_objs_[check_pairs_[pi].first].get(),
         shape_objs_[check_pairs_[pi].second].get(), creq, cres);
-      if (cres.isCollision()) {++cnt[pi];}
+      if (cres.isCollision()) {++cnt[pi]; if (s == 0) {at_default[pi] = 1;}}
     }
   }
   std::vector<std::pair<int, int>> kept;
   for (size_t pi = 0; pi < check_pairs_.size(); ++pi) {
-    if (cnt[pi] >= N) {++auto_disabled_;} else {kept.push_back(check_pairs_[pi]);}
+    const auto & pair = check_pairs_[pi];
+    if (at_default[pi] || cnt[pi] >= N) {
+      ++auto_disabled_;
+      auto_disabled_names_.push_back(
+        nodes_[shapes_[pair.first].node].name + " <-> " + nodes_[shapes_[pair.second].node].name);
+    } else {
+      kept.push_back(pair);
+    }
   }
   check_pairs_.swap(kept);
 }

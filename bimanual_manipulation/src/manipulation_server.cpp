@@ -118,10 +118,16 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
   RCLCPP_INFO(
     get_logger(),
     "Collision model (%s): %zu %s, %zu link pairs checked (%zu auto-disabled as "
-    "always-colliding).",
+    "default/always-colliding).",
     collision_.sphereMode() ? "spheres" : "mesh", collision_.shapeCount(),
     collision_.sphereMode() ? "spheres" : "shapes", collision_.checkPairCount(),
     collision_.autoDisabledCount());
+  {
+    const auto & dp = collision_.autoDisabledPairs();
+    for (size_t i = 0; i < dp.size() && i < 40; ++i) {
+      RCLCPP_INFO(get_logger(), "    auto-disabled: %s", dp[i].c_str());
+    }
+  }
   if (collision_.visualFallbackCount() > 0) {
     RCLCPP_INFO(
       get_logger(), "%zu link(s) had no <collision> and use <visual> geometry instead.",

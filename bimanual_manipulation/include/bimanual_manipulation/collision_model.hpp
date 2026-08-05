@@ -90,6 +90,7 @@ public:
   size_t meshFailed() const {return meshes_failed_;}
   size_t meshTriangles() const {return mesh_triangles_;}
   size_t autoDisabledCount() const {return auto_disabled_;}
+  const std::vector<std::string> & autoDisabledPairs() const {return auto_disabled_names_;}
   const std::vector<std::string> & linksWithoutCollision() const
   {
     return links_without_collision_;
@@ -140,8 +141,9 @@ private:
     const std::map<std::string, double> & joint_values,
     std::vector<Eigen::Isometry3d> & out) const;
 
-  // Remove from the check lists the pairs that collide in every sampled config
-  // (permanent structural contacts).
+  // Remove from the check lists the pairs that are in collision in the default
+  // pose or in every sampled config (permanent structural contacts), matching
+  // MoveIt's "Default"/"Always in collision".
   void autoDisableAlwaysColliding(const urdf::Model & model);
 
   // Build the per-link sphere approximation (spheres mode).
@@ -184,6 +186,7 @@ private:
   size_t meshes_failed_ = 0;
   size_t mesh_triangles_ = 0;
   size_t auto_disabled_ = 0;
+  std::vector<std::string> auto_disabled_names_;
 
   // Precomputed list of shape index pairs that must be tested for
   // self-collision (i.e. all pairs except the allowed/adjacent ones).
