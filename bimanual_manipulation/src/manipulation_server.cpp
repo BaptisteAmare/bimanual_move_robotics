@@ -540,13 +540,33 @@ bool ManipulationServer::computeStepPath(
     }
     const Eigen::Isometry3d tip_in_base = base0.inverse() * tip0;
 
+    std::vector<double> arm_seed(arm.joints.size());
+    for (size_t i = 0; i < arm.joints.size(); ++i) {arm_seed[i] = start[arm_idx[i]];}
+
+    // Sanity: the compensating arm must be able to reproduce the CURRENT tip
+    // pose from its current joints. If not, the frames are inconsistent (wrong
+    // base_link/tip_link, or base_link not downstream of the driven joints).
+    {
+      Eigen::Isometry3d sub0;
+      collision_.linkPose(subbase, jv, sub0);
+      const Eigen::Isometry3d goal0 = (base0.inverse() * sub0).inverse() * tip_in_base;
+      Eigen::Isometry3d cur0;
+      arm_kin->fkTip(arm_seed, cur0);
+      const double d0 = (goal0.translation() - cur0.translation()).norm();
+      std::vector<double> q0;
+      if (!arm_kin->ik(goal0, arm_seed, q0, /*limit_jump=*/true)) {
+        error = "hold_tip: the compensating subgroup '" + g.compensating_subgroup +
+          "' cannot reproduce the current tip pose (FK residual " + std::to_string(d0) +
+          " m). Check that its base_link '" + subbase + "' is downstream of the driven "
+          "joints and its tip_link matches '" + g.tip_link + "'.";
+        return false;
+      }
+    }
+
     // Steps sized by the largest driven rotation.
     double max_delta = 0.0;
     for (double d : step.joint_target) {max_delta = std::max(max_delta, std::abs(d));}
     const int M = std::max(1, static_cast<int>(std::ceil(max_delta / 0.02)));
-
-    std::vector<double> arm_seed(arm.joints.size());
-    for (size_t i = 0; i < arm.joints.size(); ++i) {arm_seed[i] = start[arm_idx[i]];}
 
     path.clear();
     path.push_back(start);
@@ -572,8 +592,13 @@ bool ManipulationServer::computeStepPath(
       const Eigen::Isometry3d goal_in_sub = (baseP.inverse() * subP).inverse() * tip_in_base;
       std::vector<double> arm_q;
       if (!arm_kin->ik(goal_in_sub, arm_seed, arm_q, /*limit_jump=*/true)) {
+        Eigen::Isometry3d cur;
+        arm_kin->fkTip(arm_seed, cur);
+        const double dp = (goal_in_sub.translation() - cur.translation()).norm();
         error = "hold_tip: arm IK failed at driven delta " + std::to_string(max_delta * f) +
-          " rad (tip unreachable while compensating)";
+          " rad; the arm would need to move the tip " + std::to_string(dp) +
+          " m in its base frame (large => frame/config mismatch; small => joint "
+          "limit or singularity)";
         return false;
       }
       for (size_t i = 0; i < arm.joints.size(); ++i) {full[arm_idx[i]] = arm_q[i];}
