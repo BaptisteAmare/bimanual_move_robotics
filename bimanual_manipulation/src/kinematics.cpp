@@ -70,6 +70,11 @@ bool GroupKinematics::init(
 
   fk_ = std::make_shared<KDL::ChainFkSolverPos_recursive>(chain_);
   ik_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(chain_, 1e-5, 500);
+  // Position-only solver: zero the orientation task weights so only x/y/z are
+  // constrained (orientation left free).
+  Eigen::Matrix<double, 6, 1> weights;
+  weights << 1.0, 1.0, 1.0, 0.0, 0.0, 0.0;
+  ik_pos_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(chain_, weights, 1e-5, 500);
   return true;
 }
 
@@ -93,13 +98,14 @@ bool GroupKinematics::fkTip(const std::vector<double> & q, Eigen::Isometry3d & p
 
 bool GroupKinematics::ik(
   const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-  std::vector<double> & q, bool limit_jump) const
+  std::vector<double> & q, bool limit_jump, bool position_only) const
 {
   if (seed.size() != group_dof_) {
     return false;
   }
   const unsigned int n = chain_.getNrOfJoints();
   const KDL::Frame goal_kdl = eigenToKdl(goal);
+  const auto & solver = position_only ? ik_pos_ : ik_;
 
   // Attempt a single IK solve from a given start configuration. Accepts the
   // result only if it respects the joint limits and (when limit_jump) stays
@@ -110,7 +116,7 @@ bool GroupKinematics::ik(
         q_init(i) = start[chain_to_group_[i]];
       }
       KDL::JntArray q_out(n);
-      if (ik_->CartToJnt(q_init, goal_kdl, q_out) < 0) {
+      if (solver->CartToJnt(q_init, goal_kdl, q_out) < 0) {
         return false;
       }
       out = seed;  // preserve any group joint that is not part of the chain

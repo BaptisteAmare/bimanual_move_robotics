@@ -181,6 +181,7 @@ MotionStep parseStep(const YAML::Node & s)
     step.type = MotionStep::TYPE_HOLD_TIP;
     step.joint_target = asDoubleList(s["deltas"]);  // driven-joint deltas [rad]
     if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["values"]);}
+    step.free_orientation = s["free_orientation"].as<bool>(false);
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
     step.reference_frame = s["reference_frame"].as<std::string>("");

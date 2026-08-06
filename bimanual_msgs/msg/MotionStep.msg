@@ -25,6 +25,11 @@ string named_target
 # the group's driven_joints, in their declared order (e.g. [waist_yaw delta]).
 float64[] joint_target
 
+# TYPE_HOLD_TIP: when true, only the tip POSITION is held fixed (orientation is
+# left free), giving the compensating arm much more room. false (default) holds
+# the full pose (position + orientation).
+bool free_orientation
+
 # --- TYPE_CARTESIAN --------------------------------------------------------
 # Target pose of the tip.
 #   * If reference_frame is set, pose_target is expressed in that TF frame

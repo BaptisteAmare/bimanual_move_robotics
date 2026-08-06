@@ -554,7 +554,7 @@ bool ManipulationServer::computeStepPath(
       arm_kin->fkTip(arm_seed, cur0);
       const double d0 = (goal0.translation() - cur0.translation()).norm();
       std::vector<double> q0;
-      if (!arm_kin->ik(goal0, arm_seed, q0, /*limit_jump=*/true)) {
+      if (!arm_kin->ik(goal0, arm_seed, q0, /*limit_jump=*/true, step.free_orientation)) {
         error = "hold_tip: the compensating subgroup '" + g.compensating_subgroup +
           "' cannot reproduce the current tip pose (FK residual " + std::to_string(d0) +
           " m). Check that its base_link '" + subbase + "' is downstream of the driven "
@@ -591,7 +591,7 @@ bool ManipulationServer::computeStepPath(
       }
       const Eigen::Isometry3d goal_in_sub = (baseP.inverse() * subP).inverse() * tip_in_base;
       std::vector<double> arm_q;
-      if (!arm_kin->ik(goal_in_sub, arm_seed, arm_q, /*limit_jump=*/true)) {
+      if (!arm_kin->ik(goal_in_sub, arm_seed, arm_q, /*limit_jump=*/true, step.free_orientation)) {
         Eigen::Isometry3d cur;
         arm_kin->fkTip(arm_seed, cur);
         const double dp = (goal_in_sub.translation() - cur.translation()).norm();
