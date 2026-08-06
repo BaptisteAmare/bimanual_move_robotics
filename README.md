@@ -1,20 +1,31 @@
 # bimanual_move_robotics
 
-Lightweight **bimanual manipulation** stack for humanoid robots, built for
-**ROS 2 Humble**. It plugs onto any `robot_description` package, talks directly
-to the robot's `FollowJointTrajectory` / `GripperCommand` controllers, and
-exposes ROS actions to run a single move or a chain of moves
-(*approach → grasp → retreat*, …).
+Lightweight **bimanual manipulation** stack for humanoid robots on **ROS 2
+Humble**. It plugs onto any `robot_description`, talks directly to the robot's
+`FollowJointTrajectory` / `GripperCommand` controllers, and exposes ROS actions
+to run a single move or a chain of moves (*approach → grasp → retreat*, …).
 
-It deliberately **does not use MoveIt's planning pipeline**. Kinematics are done
-with **KDL** and collision checking with **FCL**, with simple dense
-interpolation in joint / Cartesian space. The result is fast to compute and
-fast to execute, while still preventing the robot from colliding **with itself**
-or with **collision objects** you add at runtime.
+It deliberately **does not use MoveIt's planning pipeline**: kinematics use
+**KDL**, collision checking uses **FCL**, and paths are dense joint/Cartesian
+interpolation. The result is fast to compute and fast to execute, while still
+preventing the robot from colliding **with itself** or with **collision
+objects** you add at runtime.
 
-Everything that depends on your robot — move groups, joint names, controller
-names, named poses, collision rules, sequences — lives in **YAML files**, not in
-the code.
+Everything robot-specific — move groups, joint/controller names, named poses,
+collision rules, sequences — lives in **YAML**, not in the code.
+
+---
+
+## Contents
+- [Packages](#packages)
+- [How it works](#how-it-works)
+- [Build](#build)
+- [Run](#run)
+- [Configuration](#configuration)
+- [Motion types](#motion-types) — the six `MotionStep` primitives
+- [ROS interface](#ros-interface) — `~/move`, `~/execute_sequence`, collision objects
+- [Sequences](#sequences) — chaining, blending, timing
+- [Notes & limitations](#notes--limitations)
 
 ---
 
@@ -25,7 +36,7 @@ the code.
 | `bimanual_msgs` | Action / message / service definitions. |
 | `bimanual_manipulation` | The C++ engine and the `manipulation_server_node`. |
 
-## Architecture
+## How it works
 
 ```
                        ┌──────────────────────────────────────────┐
@@ -42,18 +53,17 @@ the code.
 ```
 
 * **Kinematics** (`kinematics.cpp`) — one KDL chain per Cartesian group, FK +
-  Levenberg-Marquardt IK.
-* **Collision** (`collision_model.cpp`) — FCL world built from the URDF
-  collision geometry (boxes/spheres/cylinders/meshes). A small URDF forward-
-  kinematics walker places every link, so a full configuration is validated in
-  `O(num_links)`. Self-collision uses an SRDF-style allowed-pairs list; world
-  objects are added/removed at runtime.
-* **Trajectory generation** (`trajectory_generator.cpp`) — dense linear
-  interpolation in joint space, or straight-line Cartesian motion with per-
-  waypoint IK. **Every waypoint is collision-checked**, then the path is
-  velocity/acceleration-limited time-parameterized.
+  Levenberg-Marquardt IK (full-pose or position-only).
+* **Collision** (`collision_model.cpp`) — an FCL world built from the URDF
+  collision geometry. A URDF FK walker places every link, so a full
+  configuration is validated in `O(num_links)`. Self-collision uses an
+  SRDF-style allowed-pairs list; world objects are added/removed at runtime.
+  Two modes: exact **meshes** (FCL) or fast analytic **spheres**.
+* **Trajectory generation** (`trajectory_generator.cpp`) — dense interpolation
+  in joint or Cartesian space, **every waypoint collision-checked**, then
+  velocity/acceleration-limited time-parameterization.
 * **Move groups** (`move_group.cpp`) — own the controller action clients and
-  split a trajectory across several controllers so **both arms move at once**.
+  split one trajectory across several controllers so **both arms move at once**.
 * **Server** (`manipulation_server.cpp`) — loads config + URDF and serves the
   ROS interfaces.
 
@@ -72,14 +82,15 @@ sudo apt install ros-humble-kdl-parser ros-humble-orocos-kdl-vendor \
                  libfcl-dev libassimp-dev libyaml-cpp-dev libeigen3-dev
 
 cd ~/ros2_ws
-# build bimanual_msgs first (bimanual_manipulation depends on its messages);
-# --packages-select keeps the right order automatically.
 colcon build --packages-select bimanual_msgs bimanual_manipulation --symlink-install
 source install/setup.bash
 ```
 
 > `--symlink-install` lets you edit the YAML configs without rebuilding. After
-> changing a `.msg`/`.action`/`.srv`, rebuild **both** packages.
+> changing a `.msg`/`.action`/`.srv`, rebuild **both** packages (messages first;
+> `--packages-select` orders them for you).
+
+---
 
 ## Run
 
@@ -89,16 +100,16 @@ controller per gripper).
 
 ```bash
 ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
-    move_groups_config:=/path/to/your/move_groups.yaml \
-    named_poses_config:=/path/to/your/named_poses.yaml \
-    collision_config:=/path/to/your/collision.yaml \
-    sequences_config:=/path/to/your/sequences.yaml \
-    srdf_config:=/path/to/your/robot.srdf \
+    move_groups_config:=/path/to/move_groups.yaml \
+    named_poses_config:=/path/to/named_poses.yaml \
+    collision_config:=/path/to/collision.yaml \
+    sequences_config:=/path/to/sequences.yaml \
+    srdf_config:=/path/to/robot.srdf \
     robot_description_file:=/path/to/full_robot.urdf
 ```
 
-Defaults point at the example configs in `bimanual_manipulation/config/`. Edit
-those (or pass your own) to match your robot's link/joint/controller names.
+All arguments default to the example configs in `bimanual_manipulation/config/`
+— edit those or pass your own to match your robot's link/joint/controller names.
 
 **Where the URDF comes from** (priority order):
 1. `robot_description` parameter (a URDF string), else
@@ -106,179 +117,207 @@ those (or pass your own) to match your robot's link/joint/controller names.
 3. the `/robot_description` topic (default).
 
 Use `robot_description_file` when the live `/robot_description` is a
-kinematics-only URDF with no `<collision>`/`<visual>` geometry: collision
-checking needs the geometry, so point it at the full description URDF (the one
-with meshes). Joint names must match the controllers / `/joint_states`.
+kinematics-only URDF with no `<collision>`/`<visual>` geometry — collision
+checking needs the geometry, so point it at the full description (with meshes).
+Joint names must match the controllers / `/joint_states`.
 
-**SRDF (`srdf_config`, optional but recommended).** A MoveIt `.srdf`'s
-`disable_collisions` pairs are merged into the allowed-collision matrix, so
-links that can never collide (or are adjacent) are not checked — exactly like
-MoveIt. Pairs referencing links absent from the URDF are ignored.
+**SRDF (`srdf_config`).** A MoveIt `.srdf`'s `disable_collisions` pairs are
+merged into the allowed-collision matrix, exactly like MoveIt (adjacent /
+never-colliding links are skipped). Pairs referencing links absent from the URDF
+are ignored. Loaded by default from the packaged SRDF; pass `srdf_config:=""` to
+disable.
 
-On startup the server logs a summary you should glance at:
+**Startup log** — glance at the summary:
 
 ```
 Loaded N disabled collision pairs from SRDF ...
-Collision model: P shapes, Q link pairs checked.
-Meshes: 33 loaded, 0 failed, NNNN collision triangles total.
-[WARN] X link(s) have NO collision geometry ...      # if any
+Collision model (spheres): P spheres, Q link pairs checked (R auto-disabled ...)
+    auto-disabled: <link_a> <-> <link_b>          # the structural pairs dropped
+Meshes: 35 loaded, 0 failed, ...
+[WARN] X link(s) have NO collision geometry ...   # if any
 ```
 
 ---
 
-## Configuration (all YAML)
+## Configuration
 
-* **`move_groups.yaml`** — groups, their joints, base/tip links and the
-  controllers they drive. A group becomes *Cartesian capable* when it has both
-  `base_link` and `tip_link`. Aggregate groups (e.g. `both_arms`) list several
-  controllers and are driven simultaneously.
-* **`named_poses.yaml`** — joint-space targets per group; the first value of a
-  gripper pose is used as the gripper command.
-* **`collision.yaml`** — collision settings:
-  * `enabled` — master on/off.
-  * `mode` — `mesh` (FCL on decimated meshes, exact) or `spheres` (each link
-    approximated by spheres, checked analytically — much faster for planning,
-    slightly conservative). `sphere_voxel` sets the sphere resolution [m] and
-    `sphere_radius_scale` inflates/deflates them.
-  * `margin` — separation distance kept from everything (self + world objects,
-    **meshes included**); the robot is rejected from getting closer than this.
-    `0` = plain contact test (fastest), `0.02`–`0.05` gives a safety gap.
-  * `padding` — primitive-only geometry inflation (no effect on meshes; use
-    `margin` instead for mesh robots).
-  * `mesh_decimation` — grid size [m] for simplifying detailed collision meshes
-    at load (huge speedup; `0` keeps full resolution).
-  * `resolution` — joint-space step between collision-checked waypoints.
-  * `auto_disable` (default true) — at startup, sample `auto_disable_samples`
-    configurations and drop any link pair that collides in the **default pose**
-    or in **all** samples (permanent structural contacts, like MoveIt's
-    "Default"/"Always in collision"). Fixes false positives the SRDF / adjacency
-    didn't cover (shoulder-against-torso, pelvis packaging, etc.), especially in
-    `spheres` mode. The disabled pairs are listed at startup.
-  * `self_chain_distance` (default 1) — skip self-collision between links that
-    are ancestor/descendant on the same chain within this many joints. `2` also
-    skips a link vs its grandparent (elbow vs wrist on one arm), which is safe
-    for serial segments and clears sphere false positives along an arm/leg.
-  * `disabled_pairs` — SRDF-style list of link pairs to ignore (in addition to
-    the SRDF, the auto-disable pass, and the chain-distance skip).
-* **`sequences.yaml`** — named lists of steps (`named` / `joint` / `cartesian` /
-  `gripper`), e.g. `pick_above_object`, `both_ready`.
+Four YAML files (+ the SRDF) define everything robot-specific. All are heavily
+commented under `bimanual_manipulation/config/`.
 
-See the heavily commented examples under `bimanual_manipulation/config/`.
+| File | Defines |
+|---|---|
+| `move_groups.yaml` | groups: joints, `base_link`/`tip_link`, controllers, and the global `planning:` defaults (speeds, RRT, `acceleration_limiting`). A group is *Cartesian-capable* once it has `base_link`+`tip_link`. |
+| `named_poses.yaml` | joint-space targets per group (first value of a gripper pose = the gripper command). |
+| `collision.yaml` | collision-checking settings (see below). |
+| `sequences.yaml` | named lists of steps, called by name via `~/execute_sequence`. |
+
+### `collision.yaml`
+
+| Key | Meaning |
+|---|---|
+| `enabled` | master on/off. |
+| `mode` | `mesh` (FCL on decimated meshes, exact) or `spheres` (each link approximated by spheres, checked analytically — much faster, slightly conservative). |
+| `sphere_voxel` / `sphere_radius_scale` | sphere resolution [m] and inflate/deflate factor (spheres mode). |
+| `margin` | separation kept from everything, **meshes included** (`0` = contact test, `0.02`–`0.05` = safety gap). |
+| `padding` | primitive-only inflation (no effect on meshes — use `margin`). |
+| `mesh_decimation` | grid size [m] simplifying meshes at load (big speedup; `0` = full res). |
+| `resolution` | joint-space step between collision-checked waypoints. |
+| `auto_disable` (+ `auto_disable_samples`) | at startup, drop link pairs in collision in the **default pose** or **all** sampled configs (permanent structural contacts, like MoveIt's "Default"/"Always"). Listed at startup. |
+| `self_chain_distance` | skip self-collision between links within N joints on the same chain. `1` = adjacent only; `2` also skips a link vs its grandparent (elbow↔wrist) — clears sphere false positives along an arm. |
+| `disabled_pairs` | extra link pairs to ignore (on top of the SRDF, auto-disable and chain-distance skip). |
+
+**Tuning false positives (spheres mode).** If a legitimate pose is rejected, the
+error names the colliding pair. In order: raise `self_chain_distance` to `2`,
+lower `sphere_radius_scale` (`0.85`), then add the specific pair to
+`disabled_pairs`.
+
+---
+
+## Motion types
+
+A `MotionStep` is one primitive. `~/move` runs a single step; `~/execute_sequence`
+runs a list. `type` selects the behavior:
+
+| `type` | Name | Purpose |
+|---|---|---|
+| `0` | Named | go to a named joint pose of the group |
+| `1` | Joint | go to explicit joint values |
+| `2` | Cartesian | move the tip to a pose / by an offset (single arm **or** dual-arm coordinated) |
+| `3` | Gripper | actuate a gripper group |
+| `4` | Follow | continuously track a (moving) TF frame |
+| `5` | Hold-tip | drive a joint (e.g. waist) while an arm holds the tip fixed |
+
+Joint-space moves (`0`, `1`, and `2` with `cartesian_path:false`) try a straight
+line first and **fall back to RRT-Connect** around obstacles if blocked (see
+[Notes](#notes--limitations)).
+
+### `0` Named / `1` Joint
+`named_target` selects a pose from `named_poses.yaml`; `joint_target` gives
+explicit values in the group's joint order.
+
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 0, group: left_arm, named_target: ready}}"
+```
+
+### `2` Cartesian (single arm)
+Moves the group tip. How the goal pose is resolved:
+
+| Field | Meaning |
+|---|---|
+| `reference_frame` | TF frame the target is expressed in (object, fixture, camera…). Set → `pose_target` is taken in this frame. |
+| `pose_target` | target pose (in `reference_frame` if set, else in the arm's base frame). |
+| `relative` + `offset` (+ `offset_in_tip_frame`) | if no `reference_frame`: offset from the current tip, in the tip frame (`offset_in_tip_frame:true`) or base frame. |
+| `cartesian_path` | `true` = straight line of the tip (precise approach/retreat, never re-routed); `false` = IK once + joint interpolation (robust, fast reach). |
+| `velocity_scaling` / `acceleration_scaling` | per-step speed (`0` → group default). |
+
+```bash
+# approach: move the left tool 10 cm down its own Z axis, in a straight line
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 2, group: left_arm, relative: true, offset_in_tip_frame: true,
+           offset: {x: 0.0, y: 0.0, z: -0.10}, cartesian_path: true, velocity_scaling: 0.15}}"
+
+# pose target 15 cm above the TF frame 'target_object' (IK + joint interpolation)
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 2, group: left_arm, reference_frame: target_object,
+           pose_target: {position: {x: 0.0, y: 0.0, z: 0.15}, orientation: {w: 1.0}},
+           cartesian_path: false}}"
+```
+
+### `2` Cartesian (dual-arm coordinated)
+A group with `cartesian_subgroups` (e.g. `both_arms: {cartesian_subgroups:
+[left_arm, right_arm]}`) applies **one shared `offset: [dx,dy,dz]`** to **both**
+tips at once, in the shared base frame, sampled together so the arms stay in
+sync. The relative pose between the hands is preserved → a two-handed grasp
+translates rigidly. Orientation is kept; pure straight-line translation.
+
+```bash
+# lift an object held in both hands by 15 cm
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 2, group: both_arms, offset: {x: 0.0, y: 0.0, z: 0.15}}}"
+```
+
+### `3` Gripper
+Actuates every gripper controller of the group. `named_target` (from
+`named_poses.yaml`) or `gripper_position`.
+
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 3, group: left_gripper, named_target: closed}}"
+```
+
+### `4` Follow (track a moving frame)
+Continuously servos the tip to `reference_frame * pose_target` (the delta is
+`pose_target`, in the frame), tracking it as it moves. Runs as a `~/move` goal
+(cancel to stop) or in a sequence, where it is a **barrier** (the sequence
+resumes once it stops). Each cycle it looks up TF, solves IK, collision-checks
+the target (holds if blocked) and streams a short trajectory. Requires a
+Cartesian-capable group. Set at least one stop condition in a sequence:
+
+| Field | Meaning |
+|---|---|
+| `follow_rate` | servo rate [Hz] (`0` → 20). |
+| `follow_timeout` | stop after this long [s] (`0` → none). |
+| `follow_position_tolerance` + `follow_settle_time` | stop once the tip stays within the tolerance [m] for that long [s] (target reached/stopped). |
+| `follow_stop_topic` | a `std_msgs/Bool` topic; a `true` message stops it. |
+
+```bash
+# keep the tip 10 cm above 'moving_target' until canceled (Ctrl-C) or settled
+ros2 action send_goal -f /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 4, group: left_arm, reference_frame: moving_target,
+           pose_target: {position: {x: 0.0, y: 0.0, z: 0.10}, orientation: {w: 1.0}},
+           follow_position_tolerance: 0.03, follow_settle_time: 1.0}}"
+```
+
+### `5` Hold-tip (drive a joint, keep the hand fixed)
+For a group that declares `driven_joints` and a `compensating_subgroup` (e.g.
+`waist_right_arm`: waist joint + right arm, `compensating_subgroup: right_arm`).
+`joint_target` gives the **deltas** [rad] for the driven joints; they are stepped
+through while the subgroup is IK-solved every step to keep `tip_link` fixed in
+`base_link` — **turn the waist while the hand stays on its object**, the arm
+absorbing the motion. Errors clearly if the tip becomes unreachable or collides.
+
+* `base_link` = the (fixed) frame the hand is held in; it **must be upstream of
+  the driven joints** (use the robot root to hold the hand fixed in the world).
+* `tip_link` = the held frame — use the frame actually attached to the object
+  (e.g. the hand contact frame).
+* `free_orientation` — `false` (default) holds the full pose; `true` holds only
+  the **position** and lets orientation drift, giving the arm much more room when
+  the full-pose hold hits a limit/singularity.
+
+```bash
+# rotate the waist 0.3 rad, holding the right hand pose fixed
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 5, group: waist_right_arm, joint_target: [0.3]}}"
+
+# same but hold position only (bigger reachable range)
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 5, group: waist_right_arm, joint_target: [0.5], free_orientation: true}}"
+```
 
 ---
 
 ## ROS interface
 
 ### `~/move` — `bimanual_msgs/action/Move`
-Run one `MotionStep`.
-
-```bash
-# joint-space named pose
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 0, group: left_arm, named_target: ready}}"
-
-# straight-line approach: move the left tool 10 cm down its own Z axis
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 2, group: left_arm, relative: true, offset_in_tip_frame: true,
-           offset: {x: 0.0, y: 0.0, z: -0.10}, velocity_scaling: 0.15}}"
-
-# pose target defined relative to a TF frame (MoveIt-like "pose in frame_id"):
-# bring the left tip 15 cm above the frame 'target_object', solving IK + joint
-# interpolation (cartesian_path:false). Set cartesian_path:true for a straight
-# line (precise approach/retreat).
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 2, group: left_arm, reference_frame: target_object,
-           pose_target: {position: {x: 0.0, y: 0.0, z: 0.15},
-                         orientation: {w: 1.0}}, cartesian_path: false}}"
-
-# close the left gripper
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 3, group: left_gripper, named_target: closed}}"
-
-# follow a (moving) TF frame, keeping the tip 10 cm above it, until canceled
-# (Ctrl-C on the goal) or a stop condition. -f shows live feedback.
-ros2 action send_goal -f /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 4, group: left_arm, reference_frame: moving_target,
-           pose_target: {position: {x: 0.0, y: 0.0, z: 0.10}, orientation: {w: 1.0}},
-           follow_position_tolerance: 0.03, follow_settle_time: 1.0, follow_timeout: 0.0}}"
-```
-
-**Hold-the-tip constrained motion (type `5`).** A group that declares
-`driven_joints` and a `compensating_subgroup` (e.g. `waist_right_arm`: waist
-joint + right arm, `compensating_subgroup: right_arm`) accepts a type-`5` step
-whose `joint_target` gives the **deltas** for the driven joints. The driven
-joints are stepped through that delta while the subgroup is IK-solved every step
-to keep `tip_link` fixed in `base_link` — turn the waist while the hand stays on
-its object, the arm absorbing the rotation. Errors clearly if the tip becomes
-unreachable or collides mid-motion. Example — rotate the waist by 0.3 rad while
-holding the right hand:
-
-```bash
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 5, group: waist_right_arm, joint_target: [0.3]}}"
-```
-
-`free_orientation` (default false) chooses what is held: `false` locks the full
-pose (position **and** orientation); `true` holds only the **position** and lets
-the hand orientation drift, which gives the arm much more room (useful when the
-full-pose hold hits a limit/singularity). Example, position-only:
-
-```bash
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 5, group: waist_right_arm, joint_target: [0.5], free_orientation: true}}"
-```
-In a sequence: `{type: hold_tip, group: waist_right_arm, deltas: [0.3], free_orientation: true}`.
-
-`step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper, `4` follow. For
-type `2`, the goal pose is taken in `reference_frame` (any TF frame) when set,
-else relative to the current tip when `relative:true`, else in the arm's base
-frame.
-
-**Dual-arm coordinated Cartesian.** A group with `cartesian_subgroups`
-(e.g. `both_arms: {cartesian_subgroups: [left_arm, right_arm]}`) accepts a
-type-`2` step whose `offset: [dx,dy,dz]` translates **both** tips by the same
-vector, in the shared base frame, sampled together so the arms stay in sync.
-The relative pose between the hands is preserved, so a two-handed grasp moves
-rigidly. Orientation is kept; it is a pure straight-line translation (no RRT
-reroute). Example — lift an object held in both hands by 15 cm:
-
-```bash
-ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
-  "{step: {type: 2, group: both_arms, offset: {x: 0.0, y: 0.0, z: 0.15}}}"
-```
+Runs one `MotionStep` (see [Motion types](#motion-types) for the `type` values
+and fields). `-f` streams feedback.
 
 ### `~/execute_sequence` — `bimanual_msgs/action/ExecuteSequence`
-Run a predefined or inline sequence (approach → grasp → retreat …).
+Runs a predefined sequence (by `sequence_name`, from `sequences.yaml`) and/or
+inline `steps`. In YAML a step's `type` is the name: `named`, `joint`,
+`cartesian`, `gripper`, `follow`, `hold_tip`.
 
 ```bash
 ros2 action send_goal -f /bimanual_manipulation_server/execute_sequence \
   bimanual_msgs/action/ExecuteSequence "{sequence_name: both_ready}"
 ```
 
-**Fluid chaining.** Consecutive steps acting on the **same** move group are
-concatenated into a **single continuous trajectory** — the arm does not stop at
-each step's end, velocities flow through the via points. A gripper step or a
-group change is a barrier that closes the current trajectory. The combined
-trajectory uses the **slowest** scaling among its steps. See `wave_left` in
-`sequences.yaml`.
-
-Timing and path shape are controlled **independently**:
-* `acceleration_limiting` (`planning:` in `move_groups.yaml`) — **timing**.
-  `false` (the example default) keeps a **constant velocity-limited** speed
-  across all steps, no slowdown at corners or direction changes; `true` smooths
-  acceleration (slows near sharp corners, gentler on the hardware).
-* per-step `blend_radius` (rad of joint space, optional, `0` = off) — **path**.
-  Rounds the corner with the next step for a more human-like path. Re-validated
-  for collisions; the cut is shrunk (or dropped) if it would hit something.
-
-Because they are independent, a rounded corner **at constant velocity** is just
-`blend_radius > 0` with `acceleration_limiting: false`.
-
 ### `~/manage_collision_object` — `bimanual_msgs/srv/ManageCollisionObject`
-Add / remove / attach world collision objects (checked on every motion).
+Add / remove / attach world collision objects, checked on every motion.
 
 ```bash
-# add a 20 cm box on the table, 60 cm in front of the robot
+# add a 20 cm box, 60 cm in front of the robot
 ros2 service call /bimanual_manipulation_server/manage_collision_object \
   bimanual_msgs/srv/ManageCollisionObject \
   "{operation: 0, id: table_box,
@@ -288,70 +327,55 @@ ros2 service call /bimanual_manipulation_server/manage_collision_object \
 ```
 
 `operation`: `0` ADD, `1` REMOVE, `2` ATTACH, `3` DETACH, `4` CLEAR. ADD poses
-are expressed in the planning (URDF root) frame; ATTACH poses in `attach_link`'s
-frame.
+are in the planning (URDF root) frame; ATTACH poses in `attach_link`'s frame.
 
-### Visualization
-World collision objects are published as a `visualization_msgs/MarkerArray` on
-`~/collision_objects` (`/bimanual_manipulation_server/collision_objects`,
-transient-local). Add a *MarkerArray* display in RViz to see them.
+**Visualization.** World objects are published as a
+`visualization_msgs/MarkerArray` on `~/collision_objects` (transient-local). Add
+a *MarkerArray* display in RViz to see them.
 
 ---
 
-## MotionStep fields (type `2`, Cartesian)
+## Sequences
 
-| field | meaning |
-|---|---|
-| `reference_frame` | TF frame the target is expressed in (object, fixture, camera, …). Empty → see below. |
-| `pose_target` | target pose; in `reference_frame` if set, else in the arm base frame. |
-| `relative` + `offset` (+ `offset_in_tip_frame`) | when no `reference_frame`: offset from the current tip (tip or base frame). |
-| `cartesian_path` | `true` = straight line of the tip (precise approach/retreat); `false` = IK once + joint interpolation (robust, fast reach). |
-| `velocity_scaling` / `acceleration_scaling` | per-step speed (0 → group default). |
-| `blend_radius` | sequences only: round the corner with the next same-group step over ~this many rad of joint space (0 = pass through). |
+Consecutive steps on the **same** move group are concatenated into a **single
+continuous trajectory** — the arm does not stop at each step's end, velocities
+flow through the via points. A gripper, follow, hold-tip, or group change is a
+**barrier** that closes the current trajectory. The combined trajectory uses the
+**slowest** scaling among its steps.
 
-### Following a moving frame (type `4`, Follow)
-`TYPE_FOLLOW` continuously servos the group tip to `reference_frame *
-pose_target` (the delta is `pose_target`, in the frame). It tracks the frame as
-it moves — useful for grabbing a moving object. It runs as a unitary `~/move`
-goal (cancel to stop) and inside sequences, where it is a **barrier** (it is not
-concatenated; the sequence resumes once it stops). Stop conditions (set at least
-one when used in a sequence):
+Timing and path shape are controlled **independently**:
 
-| field | meaning |
-|---|---|
-| `follow_rate` | servo rate [Hz] (0 → 20). |
-| `follow_timeout` | stop after this long [s] (0 → none). |
-| `follow_position_tolerance` + `follow_settle_time` | stop once the tip stays within the tolerance [m] of the target for that long [s] (target reached / stopped). |
-| `follow_stop_topic` | a `std_msgs/Bool` topic; publishing `true` stops it (external control from a sequence). |
+* **Timing** — `acceleration_limiting` (in `move_groups.yaml` `planning:`).
+  `false` (example default) = **constant velocity-limited** speed, no slowdown at
+  corners; `true` smooths acceleration (slows near sharp corners, gentler on
+  hardware).
+* **Path** — per-step `blend_radius` (rad of joint space, `0` = off). Rounds the
+  corner with the next same-group step for a more human-like path; re-validated
+  for collisions and shrunk/dropped if it would hit something.
 
-Each cycle it looks up TF, solves IK from the current state, collision-checks the
-target (holds if blocked) and streams a short trajectory to the controller.
-Requires a Cartesian-capable group. See `track_object` in `sequences.yaml`.
+So a rounded corner **at constant velocity** is just `blend_radius > 0` with
+`acceleration_limiting: false`. See `wave_left`, `carry_up_and_forward` and
+`track_object` in `sequences.yaml`.
 
 ---
 
 ## Notes & limitations
 
-* Joint-space moves (named / joint / pose targets with `cartesian_path:false`)
-  try a **straight line** first; if it is blocked, they fall back to an
-  **RRT-Connect** planner that routes around the obstacle (self + world),
-  controlled by `planning.avoid_obstacles` (default true), `rrt_max_iterations`
-  and `rrt_step`. The fast straight line is used whenever it is free, so you
-  only pay planning time when a detour is actually needed.
-* **Cartesian straight-line** moves (`cartesian_path:true`) are never re-routed
-  — they must stay straight, so a blocked one is **rejected** (use them for
-  precise approach/retreat, not for traversing clutter).
-* `collision.margin` uses an exact distance query, which is heavier than the
-  plain contact test; with detailed meshes keep `mesh_decimation` on. Mesh
-  decimation clusters vertices and can shrink a shape by ~one voxel — combine a
-  small `margin` to stay conservative.
-* SRDF `disable_collisions` reflects pairs MoveIt's random sampling never found
-  colliding; some left↔right pairs may be disabled even though the two arms can
-  physically meet. Drop those from the SRDF (or list them back via the code) if
-  you need cross-arm collisions caught.
-* World-object poses for ADD must be given in the root frame (no TF lookup is
-  performed); ATTACH poses are in the link frame. DETACH simply removes the
-  object.
+* **Obstacle avoidance.** Joint-space moves try a straight line first and fall
+  back to **RRT-Connect** around obstacles (self + world), controlled by
+  `planning.avoid_obstacles` (default true), `rrt_step`, `rrt_edge_resolution`
+  and `rrt_max_iterations`. You only pay planning time when a detour is needed.
+* **Cartesian straight lines** (`cartesian_path:true`, and dual-arm coordinated
+  moves) are never re-routed — a blocked one is **rejected**. Use them for
+  precise approach/retreat, not for traversing clutter.
+* `collision.margin` uses an exact distance query (heavier than the contact
+  test); keep `mesh_decimation` on with detailed meshes. Decimation can shrink a
+  shape by ~one voxel — combine a small `margin` to stay conservative.
+* SRDF `disable_collisions` reflects pairs MoveIt never found colliding; some
+  left↔right pairs may be disabled even though the arms can physically meet. Drop
+  those from the SRDF if you need cross-arm collisions caught.
+* World-object ADD poses are in the root frame (no TF lookup); ATTACH poses are
+  in the link frame.
 * URDF `mimic` joints are treated as independent (defaulted to 0) for collision
-  FK. List the relevant pairs in `disabled_pairs` if that ever matters.
-* One goal is executed at a time; additional goals are rejected while busy.
+  FK. List affected pairs in `disabled_pairs` if it matters.
+* One goal runs at a time; additional goals are rejected while busy.
