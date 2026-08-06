@@ -13,6 +13,7 @@
 #include <kdl/tree.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
 #include <kdl/chainiksolverpos_lma.hpp>
+#include <kdl/chainjnttojacsolver.hpp>
 #include <urdf/model.h>
 
 #include "bimanual_manipulation/types.hpp"
@@ -56,10 +57,21 @@ public:
   const std::vector<std::pair<double, double>> & limits() const {return limits_;}
 
 private:
+  // Damped-least-squares IK with the locked joints' Jacobian columns masked out,
+  // used when the group has locked_joints (KDL's LMA cannot hold a mid-chain
+  // joint fixed). Honors position_only / limit_jump / accept like ik().
+  bool ikLocked(
+    const Eigen::Isometry3d & goal, const std::vector<double> & seed,
+    std::vector<double> & q, bool limit_jump, bool position_only,
+    const std::function<bool(const std::vector<double> &)> & accept) const;
+
   KDL::Chain chain_;
   std::shared_ptr<KDL::ChainFkSolverPos_recursive> fk_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_pos_;  // position-only (orientation free)
+  std::shared_ptr<KDL::ChainJntToJacSolver> jac_;
+  std::vector<char> locked_mask_;   // per chain joint: 1 if held fixed
+  bool has_locked_ = false;
   std::vector<std::pair<double, double>> limits_;  // (lower, upper) per chain joint
 
   // q vectors handed to / returned by this class are ordered like the group's

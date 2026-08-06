@@ -146,7 +146,7 @@ commented under `bimanual_manipulation/config/`.
 
 | File | Defines |
 |---|---|
-| `move_groups.yaml` | groups: joints, `base_link`/`tip_link`, controllers, and the global `planning:` defaults (speeds, RRT, `acceleration_limiting`). A group is *Cartesian-capable* once it has `base_link`+`tip_link`. |
+| `move_groups.yaml` | groups: joints, `base_link`/`tip_link`, controllers, and the global `planning:` defaults (speeds, RRT, `acceleration_limiting`). A group is *Cartesian-capable* once it has `base_link`+`tip_link`. Optional `locked_joints:` — see below. |
 | `named_poses.yaml` | joint-space targets per group (first value of a gripper pose = the gripper command). |
 | `collision.yaml` | collision-checking settings (see below). |
 | `sequences.yaml` | named lists of steps, called by name via `~/execute_sequence`. |
@@ -170,6 +170,30 @@ commented under `bimanual_manipulation/config/`.
 error names the colliding pair. In order: raise `self_chain_distance` to `2`,
 lower `sphere_radius_scale` (`0.85`), then add the specific pair to
 `disabled_pairs`.
+
+### Locked joints (`move_groups.yaml`)
+
+A joint can be **on** a group's kinematic chain (so it must be listed in
+`joints`) yet held **fixed** during Cartesian IK. List it under `locked_joints`:
+the IK keeps it exactly at its current value while the other joints reach the
+target. This is how you keep, say, the waist *pitch* still while the waist *yaw*
+and the arm move (pitch sits between yaw and the arm, so it cannot simply be
+dropped from the chain). Locked joints are still commanded — to hold position.
+
+```yaml
+  right_arm_with_torso:
+    base_link: base_link                 # upstream of the waist
+    tip_link: R_industrial_hand_contact_frame
+    joints: [waist_yaw_joint, waist_pitch_joint, R_shoulder_pitch_joint, ... , R_wrist_roll_joint]
+    locked_joints: [waist_pitch_joint]   # on the chain, but held fixed
+    controllers:
+      - {name: /right_arm_controller/follow_joint_trajectory, joints: [R_shoulder_pitch_joint, ...]}
+      - {name: /waist_controller/follow_joint_trajectory, joints: [waist_yaw_joint, waist_pitch_joint]}
+```
+
+Under the hood, groups with `locked_joints` use a damped-least-squares IK that
+zeroes the locked joints' Jacobian columns (KDL's default solver cannot hold a
+mid-chain joint); it still honors `free_orientation` and collision-aware IK.
 
 ---
 

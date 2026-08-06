@@ -35,6 +35,10 @@ struct GroupConfig
   std::string tip_link;              // kinematic chain tip (Cartesian groups)
   std::vector<std::string> joints;   // ordered joints owned by the group
   std::vector<ControllerConfig> controllers;
+  // Group joints that are required for the kinematic chain but must be held at
+  // their current value during Cartesian IK (e.g. keep the waist pitch fixed
+  // while the yaw + arm move). They still get commanded (to hold position).
+  std::vector<std::string> locked_joints;
   // Cartesian-capable subgroups (e.g. [left_arm, right_arm]) whose tips move
   // together under one shared translation — dual-arm coordinated Cartesian.
   std::vector<std::string> cartesian_subgroups;
