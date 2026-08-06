@@ -8,6 +8,8 @@ uint8 TYPE_JOINT=1      # go to explicit joint values (group order)
 uint8 TYPE_CARTESIAN=2  # straight-line Cartesian move of the group tip
 uint8 TYPE_GRIPPER=3    # actuate a gripper group
 uint8 TYPE_FOLLOW=4     # continuously track a (possibly moving) TF frame
+uint8 TYPE_HOLD_TIP=5   # drive the group's driven_joints while the compensating
+                        # subgroup keeps the tip fixed in the base frame
 
 uint8 type
 
@@ -19,6 +21,8 @@ string named_target
 
 # --- TYPE_JOINT ------------------------------------------------------------
 # Ordered exactly as the joints declared for the group.
+# For TYPE_HOLD_TIP this instead holds the *deltas* (relative, [rad]) applied to
+# the group's driven_joints, in their declared order (e.g. [waist_yaw delta]).
 float64[] joint_target
 
 # --- TYPE_CARTESIAN --------------------------------------------------------

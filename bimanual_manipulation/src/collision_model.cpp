@@ -627,6 +627,18 @@ void CollisionModel::computeLinkTransforms(
   }
 }
 
+bool CollisionModel::linkPose(
+  const std::string & link, const std::map<std::string, double> & joint_values,
+  Eigen::Isometry3d & out) const
+{
+  auto it = node_index_.find(link);
+  if (it == node_index_.end()) {return false;}
+  std::vector<Eigen::Isometry3d> tf;
+  computeLinkTransforms(joint_values, tf);
+  out = tf[it->second];
+  return true;
+}
+
 bool CollisionModel::checkState(const std::map<std::string, double> & joint_values) const
 {
   return checkStateImpl(joint_values, nullptr);

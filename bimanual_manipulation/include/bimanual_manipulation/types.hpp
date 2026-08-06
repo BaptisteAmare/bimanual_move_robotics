@@ -38,6 +38,11 @@ struct GroupConfig
   // Cartesian-capable subgroups (e.g. [left_arm, right_arm]) whose tips move
   // together under one shared translation — dual-arm coordinated Cartesian.
   std::vector<std::string> cartesian_subgroups;
+  // TYPE_HOLD_TIP: joints commanded directly (e.g. [waist_yaw_joint]); the
+  // compensating_subgroup (a Cartesian group whose base_link is downstream of
+  // these joints, e.g. an arm) is IK-solved each step to hold the tip fixed.
+  std::vector<std::string> driven_joints;
+  std::string compensating_subgroup;
 
   double default_velocity_scaling = 0.3;
   double default_acceleration_scaling = 0.3;

@@ -203,6 +203,22 @@ ros2 action send_goal -f /bimanual_manipulation_server/move bimanual_msgs/action
            follow_position_tolerance: 0.03, follow_settle_time: 1.0, follow_timeout: 0.0}}"
 ```
 
+**Hold-the-tip constrained motion (type `5`).** A group that declares
+`driven_joints` and a `compensating_subgroup` (e.g. `waist_right_arm`: waist
+joint + right arm, `compensating_subgroup: right_arm`) accepts a type-`5` step
+whose `joint_target` gives the **deltas** for the driven joints. The driven
+joints are stepped through that delta while the subgroup is IK-solved every step
+to keep `tip_link` fixed in `base_link` — turn the waist while the hand stays on
+its object, the arm absorbing the rotation. Errors clearly if the tip becomes
+unreachable or collides mid-motion. Example — rotate the waist by 0.3 rad while
+holding the right hand:
+
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 5, group: waist_right_arm, joint_target: [0.3]}}"
+```
+In a sequence: `{type: hold_tip, group: waist_right_arm, deltas: [0.3]}`.
+
 `step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper, `4` follow. For
 type `2`, the goal pose is taken in `reference_frame` (any TF frame) when set,
 else relative to the current tip when `relative:true`, else in the arm's base
