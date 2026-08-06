@@ -119,11 +119,11 @@ groups:
   # joint names if you want to command it. The Walker S2 also exposes
   # waist_controller / head_controller.
   #
-  # waist:
-  #   joints: [waist_yaw, waist_pitch]
-  #   controllers:
-  #     - name: /waist_controller/follow_joint_trajectory
-  #       type: follow_joint_trajectory
+  waist:
+    joints: [waist_yaw, waist_pitch]
+    controllers:
+      - name: /waist_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
 
   # Constrained "hold the tip" group: drive the waist while the RIGHT arm
   # compensates so the hand stays fixed (e.g. hand attached to an object).
@@ -131,35 +131,35 @@ groups:
   # `compensating_subgroup` (right_arm, whose base_link=torso_link is below the
   # waist) is IK-solved each step to keep tip_link fixed in base_link. Fix the
   # joint / controller names to your robot before enabling.
-  #
-  # waist_right_arm:
-  #   base_link: base_link            # frame the hand is held fixed in
-  #   tip_link: R_wrist_roll_link     # the held end effector
-  #   driven_joints: [waist_yaw_joint]
-  #   compensating_subgroup: right_arm
-  #   joints:
-  #     - waist_yaw_joint
-  #     - R_shoulder_pitch_joint
-  #     - R_shoulder_roll_joint
-  #     - R_shoulder_yaw_joint
-  #     - R_elbow_roll_joint
-  #     - R_elbow_yaw_joint
-  #     - R_wrist_pitch_joint
-  #     - R_wrist_roll_joint
-  #   controllers:
-  #     - name: /waist_controller/follow_joint_trajectory
-  #       type: follow_joint_trajectory
-  #       joints: [waist_yaw_joint]
-  #     - name: /right_arm_controller/follow_joint_trajectory
-  #       type: follow_joint_trajectory
-  #       joints:
-  #         - R_shoulder_pitch_joint
-  #         - R_shoulder_roll_joint
-  #         - R_shoulder_yaw_joint
-  #         - R_elbow_roll_joint
-  #         - R_elbow_yaw_joint
-  #         - R_wrist_pitch_joint
-  #         - R_wrist_roll_joint
+  
+  waist_right_arm:
+    base_link: base_link            # frame the hand is held fixed in
+    tip_link: R_industrial_hand_contact_frame     # the held end effector
+    driven_joints: [waist_yaw_joint]
+    compensating_subgroup: right_arm
+    joints:
+      - waist_yaw_joint
+      - R_shoulder_pitch_joint
+      - R_shoulder_roll_joint
+      - R_shoulder_yaw_joint
+      - R_elbow_roll_joint
+      - R_elbow_yaw_joint
+      - R_wrist_pitch_joint
+      - R_wrist_roll_joint
+    controllers:
+      - name: /waist_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [waist_yaw_joint]
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - R_shoulder_pitch_joint
+          - R_shoulder_roll_joint
+          - R_shoulder_yaw_joint
+          - R_elbow_roll_joint
+          - R_elbow_yaw_joint
+          - R_wrist_pitch_joint
+          - R_wrist_roll_joint
 
 # NOTE: no gripper/hand JointTrajectory controller was detected on this robot,
 # so gripper groups are omitted. When a hand controller exists, add a group

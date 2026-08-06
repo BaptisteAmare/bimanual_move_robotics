@@ -10,10 +10,10 @@
     <!--CHAINS: When a chain is specified, all the links along the chain (including endpoints) are included in the group. Additionally, all the joints that are parents to included links are also included. This means that joints along the chain and the parent joint of the base link are included in the group-->
     <!--SUBGROUPS: Groups can also be formed by referencing to already defined group names-->
     <group name="left_hand">
-        <link name="L_augmented_hand_base_link"/>
+        <link name="L_industrial_hand_base_link"/>
     </group>
     <group name="right_hand">
-        <link name="R_augmented_hand_base_link"/>
+        <link name="R_industrial_hand_base_link"/>
     </group>
     <group name="both_hand">
         <group name="left_hand"/>
@@ -273,15 +273,13 @@
     </group_state>
     <!--END EFFECTOR: Purpose: Represent information about an end effector.-->
      <end_effector name="left_hand_ee"
-                  parent_link="L_wrist_roll_link"
-                  group="left_hand"
-                  parent_group="left_arm_with_torso"/>
-
-    <!-- right_hand_ee : group passe à right_manipulator car right_hand est rigide -->
+              parent_link="L_industrial_hand_contact_frame"
+              group="left_hand"
+              parent_group="left_arm_with_torso"/>
     <end_effector name="right_hand_ee"
-                  parent_link="R_wrist_roll_link"
-                  group="right_arm_with_torso"
-                  parent_group="right_arm_with_torso"/>
+                parent_link="R_industrial_hand_contact_frame"
+                group="right_arm_with_torso"
+                parent_group="right_arm_with_torso"/>
     <!--VIRTUAL JOINT: Purpose: this element defines a virtual joint between a robot link and an external frame of reference (considered fixed with respect to the robot)-->
     <virtual_joint name="virtual_joint" type="fixed" parent_frame="world" child_link="base_footprint"/>
     <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
@@ -468,8 +466,8 @@
     <disable_collisions link1="L_sixforce_link" link2="R_sixforce_link" reason="Never"/>
     <disable_collisions link1="L_sixforce_link" link2="R_wrist_pitch_link" reason="Never"/>
     <disable_collisions link1="L_sixforce_link" link2="R_wrist_roll_link" reason="Never"/>
-    <disable_collisions link1="L_sixforce_link" link2="L_augmented_hand_base_link" reason="Never"/>
-    <disable_collisions link1="R_sixforce_link" link2="R_augmented_hand_base_link" reason="Never"/>
+    <disable_collisions link1="L_sixforce_link" link2="L_industrial_hand_base_link" reason="Never"/>
+    <disable_collisions link1="R_sixforce_link" link2="R_industrial_hand_base_link" reason="Never"/>
     <disable_collisions link1="L_wrist_pitch_link" link2="L_wrist_roll_link" reason="Adjacent"/>
     <disable_collisions link1="L_wrist_pitch_link" link2="R_ankle_pitch_link" reason="Never"/>
     <disable_collisions link1="L_wrist_pitch_link" link2="R_elbow_yaw_link" reason="Never"/>

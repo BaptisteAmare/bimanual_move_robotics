@@ -94,4 +94,6 @@ sequences:
        position: [0.0, -0.4, 0.0], cartesian_path: false}
     - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 1.0}
     - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.20, 0.0], cartesian_path: true}
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # monte 15 cm
+    - {type: cartesian, group: both_arms, offset: [-0.1, 0.0, 0.0]}   # puis 20 cm avant
     
