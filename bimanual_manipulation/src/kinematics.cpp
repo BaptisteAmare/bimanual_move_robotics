@@ -98,7 +98,8 @@ bool GroupKinematics::fkTip(const std::vector<double> & q, Eigen::Isometry3d & p
 
 bool GroupKinematics::ik(
   const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-  std::vector<double> & q, bool limit_jump, bool position_only) const
+  std::vector<double> & q, bool limit_jump, bool position_only,
+  const std::function<bool(const std::vector<double> &)> & accept) const
 {
   if (seed.size() != group_dof_) {
     return false;
@@ -129,6 +130,9 @@ bool GroupKinematics::ik(
           return false;  // discontinuous jump w.r.t. the previous waypoint
         }
         out[gi] = q_out(i);
+      }
+      if (accept && !accept(out)) {
+        return false;  // e.g. self-collision: keep searching for another IK
       }
       return true;
     };

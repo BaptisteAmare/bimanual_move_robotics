@@ -648,9 +648,13 @@ bool ManipulationServer::computeStepPath(
       return TrajectoryGenerator::cartesianPath(
         *kin, start, start_pose, goal_pose, motion, valid, path, error);
     }
+    // Collision-aware IK: among the (possibly redundant) solutions, pick one
+    // that is not in self/world collision — important for high-DoF groups where
+    // KDL might otherwise fold the arm into the body.
     std::vector<double> target;
-    if (!kin->ik(goal_pose, start, target, /*limit_jump=*/false)) {
-      error = "IK failed for the requested pose target (group '" + g.name + "')";
+    if (!kin->ik(goal_pose, start, target, /*limit_jump=*/false, /*position_only=*/false, valid)) {
+      error = "IK failed for the requested pose target (group '" + g.name +
+        "'): no collision-free solution found";
       return false;
     }
     return jointWithFallback(target);

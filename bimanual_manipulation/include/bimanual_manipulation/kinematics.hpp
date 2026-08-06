@@ -2,6 +2,7 @@
 #ifndef BIMANUAL_MANIPULATION_KINEMATICS_HPP
 #define BIMANUAL_MANIPULATION_KINEMATICS_HPP
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -41,9 +42,15 @@ public:
   // solution and restarts from anywhere in the joint range.
   // position_only=true holds only the tip position (orientation free), which
   // gives a redundant arm much more room to reach the target.
+  //
+  // `accept`, when set, is called on each candidate solution (in group joint
+  // order); solutions it rejects are skipped and the search continues. Pass a
+  // collision check to make IK collision-aware, so a redundant arm resolves the
+  // pose to a self-collision-free configuration.
   bool ik(
     const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-    std::vector<double> & q, bool limit_jump = true, bool position_only = false) const;
+    std::vector<double> & q, bool limit_jump = true, bool position_only = false,
+    const std::function<bool(const std::vector<double> &)> & accept = {}) const;
 
   size_t dof() const {return chain_.getNrOfJoints();}
   const std::vector<std::pair<double, double>> & limits() const {return limits_;}
