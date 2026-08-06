@@ -44,6 +44,12 @@ public:
     const std::map<std::string, double> & joint_values,
     const std::set<std::string> & active_joints) const;
 
+  // Forward kinematics: pose of `link` (in the model root frame) for the given
+  // joint values. False if the link is unknown.
+  bool linkPose(
+    const std::string & link, const std::map<std::string, double> & joint_values,
+    Eigen::Isometry3d & out) const;
+
   // Human-readable list of the collisions at this configuration — for
   // diagnosing why a state was rejected. When active_joints is given, only the
   // pairs that actually block a move of that group are listed (same filter as

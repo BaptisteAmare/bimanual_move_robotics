@@ -64,6 +64,8 @@ bool parseGroups(const YAML::Node & root, ManipulationConfig & out, std::string 
     g.cartesian = !g.base_link.empty() && !g.tip_link.empty();
     g.cartesian_step = n["cartesian_step"].as<double>(0.005);
     g.cartesian_subgroups = asStringList(n["cartesian_subgroups"]);
+    g.driven_joints = asStringList(n["driven_joints"]);
+    g.compensating_subgroup = n["compensating_subgroup"].as<std::string>("");
     g.default_velocity_scaling =
       n["velocity_scaling"].as<double>(out.defaults.velocity_scaling);
     g.default_acceleration_scaling =
@@ -175,6 +177,10 @@ MotionStep parseStep(const YAML::Node & s)
     step.type = MotionStep::TYPE_GRIPPER;
     step.named_target = s["named"].as<std::string>("");
     step.gripper_position = s["position"].as<double>(0.0);
+  } else if (type == "hold_tip") {
+    step.type = MotionStep::TYPE_HOLD_TIP;
+    step.joint_target = asDoubleList(s["deltas"]);  // driven-joint deltas [rad]
+    if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["values"]);}
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
     step.reference_frame = s["reference_frame"].as<std::string>("");

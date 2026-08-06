@@ -179,7 +179,11 @@ bool ManipulationServer::buildModel(const std::string & urdf_xml, std::string & 
   for (auto & kv : config_.groups) {
     GroupConfig & g = kv.second;
     move_groups_[g.name] = std::make_shared<MoveGroup>(this, g);
-    if (g.cartesian) {
+    // Build a full-chain solver only for genuine single-chain Cartesian groups.
+    // Constrained groups (TYPE_HOLD_TIP) borrow their compensating subgroup's
+    // solver instead, and their own base->tip chain may contain joints they do
+    // not own (e.g. a fixed waist_pitch), which the chain solver would reject.
+    if (g.cartesian && g.compensating_subgroup.empty()) {
       auto kin = std::make_shared<GroupKinematics>();
       std::string kerr;
       if (!kin->init(kdl_tree_, g, urdf_model_, kerr)) {
@@ -473,6 +477,111 @@ bool ManipulationServer::computeStepPath(
           std::to_string(f * delta.norm()) + " m along the move";
         return false;
       }
+      path.push_back(std::move(full));
+    }
+    return true;
+  }
+
+  // Drive the group's driven_joints (e.g. waist_yaw) while the compensating
+  // subgroup (an arm) is IK-solved every step to hold the tip fixed in the
+  // group's base frame — turn the waist while the hand stays on the object.
+  if (step.type == MotionStep::TYPE_HOLD_TIP) {
+    if (g.driven_joints.empty() || g.compensating_subgroup.empty()) {
+      error = "group '" + g.name + "' has no driven_joints/compensating_subgroup";
+      return false;
+    }
+    auto kit = kinematics_.find(g.compensating_subgroup);
+    auto cit = config_.groups.find(g.compensating_subgroup);
+    if (kit == kinematics_.end() || cit == config_.groups.end()) {
+      error = "compensating_subgroup '" + g.compensating_subgroup +
+        "' is unknown or not Cartesian capable";
+      return false;
+    }
+    auto arm_kin = kit->second;
+    const GroupConfig & arm = cit->second;
+    const std::string & subbase = arm.base_link;
+
+    // Index maps into the group's joint vector.
+    auto indexIn = [&](const std::string & jn, int & out) -> bool {
+        auto it = std::find(g.joints.begin(), g.joints.end(), jn);
+        if (it == g.joints.end()) {return false;}
+        out = static_cast<int>(it - g.joints.begin());
+        return true;
+      };
+    std::vector<int> driven_idx(g.driven_joints.size());
+    for (size_t i = 0; i < g.driven_joints.size(); ++i) {
+      if (!indexIn(g.driven_joints[i], driven_idx[i])) {
+        error = "driven joint '" + g.driven_joints[i] + "' is not in group '" + g.name + "'";
+        return false;
+      }
+    }
+    std::vector<int> arm_idx(arm.joints.size());
+    for (size_t i = 0; i < arm.joints.size(); ++i) {
+      if (!indexIn(arm.joints[i], arm_idx[i])) {
+        error = "compensating joint '" + arm.joints[i] + "' is not in group '" + g.name + "'";
+        return false;
+      }
+    }
+    if (step.joint_target.size() != g.driven_joints.size()) {
+      error = "hold_tip expects " + std::to_string(g.driven_joints.size()) +
+        " driven delta(s), got " + std::to_string(step.joint_target.size());
+      return false;
+    }
+
+    // Held target: current tip pose in the group's base frame.
+    std::map<std::string, double> jv = base_state;
+    for (size_t i = 0; i < g.joints.size(); ++i) {jv[g.joints[i]] = start[i];}
+    Eigen::Isometry3d base0, tip0;
+    if (!collision_.linkPose(g.base_link, jv, base0) ||
+      !collision_.linkPose(g.tip_link, jv, tip0))
+    {
+      error = "hold_tip: unknown base_link/tip_link for group '" + g.name + "'";
+      return false;
+    }
+    const Eigen::Isometry3d tip_in_base = base0.inverse() * tip0;
+
+    // Steps sized by the largest driven rotation.
+    double max_delta = 0.0;
+    for (double d : step.joint_target) {max_delta = std::max(max_delta, std::abs(d));}
+    const int M = std::max(1, static_cast<int>(std::ceil(max_delta / 0.02)));
+
+    std::vector<double> arm_seed(arm.joints.size());
+    for (size_t i = 0; i < arm.joints.size(); ++i) {arm_seed[i] = start[arm_idx[i]];}
+
+    path.clear();
+    path.push_back(start);
+    for (int s = 1; s <= M; ++s) {
+      const double f = static_cast<double>(s) / M;
+      std::vector<double> full = start;
+      // Apply the driven-joint deltas at this fraction.
+      std::map<std::string, double> jvs = base_state;
+      for (size_t i = 0; i < g.joints.size(); ++i) {jvs[g.joints[i]] = full[i];}
+      for (size_t i = 0; i < g.driven_joints.size(); ++i) {
+        const double v = start[driven_idx[i]] + step.joint_target[i] * f;
+        full[driven_idx[i]] = v;
+        jvs[g.driven_joints[i]] = v;
+      }
+      // Tip pose re-expressed in the (now-moved) arm base frame.
+      Eigen::Isometry3d baseP, subP;
+      if (!collision_.linkPose(g.base_link, jvs, baseP) ||
+        !collision_.linkPose(subbase, jvs, subP))
+      {
+        error = "hold_tip: FK failed";
+        return false;
+      }
+      const Eigen::Isometry3d goal_in_sub = (baseP.inverse() * subP).inverse() * tip_in_base;
+      std::vector<double> arm_q;
+      if (!arm_kin->ik(goal_in_sub, arm_seed, arm_q, /*limit_jump=*/true)) {
+        error = "hold_tip: arm IK failed at driven delta " + std::to_string(max_delta * f) +
+          " rad (tip unreachable while compensating)";
+        return false;
+      }
+      for (size_t i = 0; i < arm.joints.size(); ++i) {full[arm_idx[i]] = arm_q[i];}
+      if (!valid(full)) {
+        error = "hold_tip: collision at driven delta " + std::to_string(max_delta * f) + " rad";
+        return false;
+      }
+      arm_seed = arm_q;
       path.push_back(std::move(full));
     }
     return true;
