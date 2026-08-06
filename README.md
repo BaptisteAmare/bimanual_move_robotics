@@ -217,7 +217,17 @@ holding the right hand:
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 5, group: waist_right_arm, joint_target: [0.3]}}"
 ```
-In a sequence: `{type: hold_tip, group: waist_right_arm, deltas: [0.3]}`.
+
+`free_orientation` (default false) chooses what is held: `false` locks the full
+pose (position **and** orientation); `true` holds only the **position** and lets
+the hand orientation drift, which gives the arm much more room (useful when the
+full-pose hold hits a limit/singularity). Example, position-only:
+
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 5, group: waist_right_arm, joint_target: [0.5], free_orientation: true}}"
+```
+In a sequence: `{type: hold_tip, group: waist_right_arm, deltas: [0.3], free_orientation: true}`.
 
 `step.type`: `0` named, `1` joint, `2` cartesian, `3` gripper, `4` follow. For
 type `2`, the goal pose is taken in `reference_frame` (any TF frame) when set,

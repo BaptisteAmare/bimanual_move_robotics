@@ -39,9 +39,11 @@ public:
   // seed to keep continuity and restarts only with small perturbations.
   // limit_jump=false (one-shot "go to this pose") accepts any in-limit
   // solution and restarts from anywhere in the joint range.
+  // position_only=true holds only the tip position (orientation free), which
+  // gives a redundant arm much more room to reach the target.
   bool ik(
     const Eigen::Isometry3d & goal, const std::vector<double> & seed,
-    std::vector<double> & q, bool limit_jump = true) const;
+    std::vector<double> & q, bool limit_jump = true, bool position_only = false) const;
 
   size_t dof() const {return chain_.getNrOfJoints();}
   const std::vector<std::pair<double, double>> & limits() const {return limits_;}
@@ -50,6 +52,7 @@ private:
   KDL::Chain chain_;
   std::shared_ptr<KDL::ChainFkSolverPos_recursive> fk_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_;
+  std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_pos_;  // position-only (orientation free)
   std::vector<std::pair<double, double>> limits_;  // (lower, upper) per chain joint
 
   // q vectors handed to / returned by this class are ordered like the group's
