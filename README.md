@@ -111,6 +111,21 @@ ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
 All arguments default to the example configs in `bimanual_manipulation/config/`
 — edit those or pass your own to match your robot's link/joint/controller names.
 
+**Multiple robots.** Nothing robot-specific lives in the code — it's all in the
+YAML files + the SRDF. Put each robot's four YAML files in their own folder
+(e.g. `config/genie/`) and select it with one argument:
+
+```bash
+ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
+    config_dir:=/path/to/config/genie \
+    srdf_config:=/path/to/genie.srdf \      # or srdf_config:="" to rely on auto-disable
+    robot_description_file:=/path/to/genie.urdf
+```
+
+`config_dir` sets where `move_groups.yaml` / `named_poses.yaml` /
+`collision.yaml` / `sequences.yaml` are read from; any single file can still be
+overridden individually. A ready-to-adapt `config/genie/` set is included.
+
 **Where the URDF comes from** (priority order):
 1. `robot_description` parameter (a URDF string), else
 2. `robot_description_file` — a URDF **file** on disk, else

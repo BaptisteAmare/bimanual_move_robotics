@@ -1,0 +1,23 @@
+# Named joint-space poses for the Genie G2. Values are in group joint order.
+# These are safe placeholders (mostly zeros = the URDF default). TUNE THEM to
+# real, comfortable poses for your robot before relying on them.
+
+named_poses:
+
+  left_arm:
+    home:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ready: [0.0, 0.3, 0.0, -0.6, 0.0, 0.3, 0.0]   # slightly bent — adjust
+
+  right_arm:
+    home:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ready: [0.0, 0.3, 0.0, -0.6, 0.0, 0.3, 0.0]
+
+  both_arms:
+    home:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ready: [0.0, 0.3, 0.0, -0.6, 0.0, 0.3, 0.0,
+            0.0, 0.3, 0.0, -0.6, 0.0, 0.3, 0.0]
+
+  body:
+    # idx01 lower limit is 0; idx02 lower limit is 0 -> zeros are valid.
+    home: [0.0, 0.0, 0.0, 0.0, 0.0]

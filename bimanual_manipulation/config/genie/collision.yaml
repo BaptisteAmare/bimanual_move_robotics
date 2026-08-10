@@ -1,0 +1,21 @@
+# Collision settings for the Genie G2. The URDF provides convex-mesh (.STL) and
+# primitive (box/cylinder) collision geometry, so both modes work. No SRDF is
+# provided yet, so self-collision relies on adjacency + the auto-disable pass +
+# the chain-distance skip. Generating a proper SRDF (MoveIt Setup Assistant) is
+# recommended once basic motion works.
+
+collision:
+  enabled: true
+  mode: spheres              # fast; switch to "mesh" for exact convex-mesh checks
+  sphere_voxel: 0.05
+  sphere_radius_scale: 1.0
+  margin: 0.0
+  padding: 0.0
+  mesh_decimation: 0.02
+  resolution: 0.02
+  auto_disable: true         # drops structural/default-pose contacts at startup
+  auto_disable_samples: 50
+  self_chain_distance: 2     # skip a link vs its grandparent on the same chain
+  # Add pairs here if the startup log flags legitimate poses as colliding, e.g.:
+  # disabled_pairs:
+  #   - [arm_l_link1, body_link5]

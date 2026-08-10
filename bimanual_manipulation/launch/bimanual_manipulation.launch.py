@@ -1,19 +1,26 @@
 # Launch the bimanual manipulation server.
 #
-# The URDF is taken from the /robot_description topic by default (published by
-# robot_state_publisher in your robot bringup). All four YAML config files can
-# be overridden from the command line, e.g.:
+# Everything robot-specific lives in YAML + the SRDF, nothing in the code, so
+# supporting several robots is just a matter of pointing at a different config
+# folder. Put each robot's files in their own directory and select it with one
+# argument:
 #
 #   ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
-#       move_groups_config:=/path/to/my_move_groups.yaml
+#       config_dir:=/path/to/config/genie \
+#       srdf_config:=/path/to/genie.srdf \
+#       robot_description_file:=/path/to/genie.urdf
 #
-# To feed the URDF directly instead of via topic, set robot_description:=...
+# `config_dir` sets where move_groups.yaml / named_poses.yaml / collision.yaml /
+# sequences.yaml are read from (default: this package's config/). Any single file
+# can still be overridden individually. The URDF is taken from the
+# /robot_description topic by default; set robot_description_file:=... to feed a
+# full-geometry URDF from disk instead.
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 
@@ -21,19 +28,27 @@ def generate_launch_description():
     pkg = get_package_share_directory('bimanual_manipulation')
     cfg = os.path.join(pkg, 'config')
 
+    def in_config_dir(name):
+        return PathJoinSubstitution([LaunchConfiguration('config_dir'), name])
+
     args = [
         DeclareLaunchArgument(
-            'move_groups_config', default_value=os.path.join(cfg, 'move_groups.yaml')),
+            'config_dir', default_value=cfg,
+            description='Directory holding this robot\'s move_groups.yaml / '
+                        'named_poses.yaml / collision.yaml / sequences.yaml. '
+                        'One folder per robot; select it here.'),
         DeclareLaunchArgument(
-            'named_poses_config', default_value=os.path.join(cfg, 'named_poses.yaml')),
+            'move_groups_config', default_value=in_config_dir('move_groups.yaml')),
         DeclareLaunchArgument(
-            'collision_config', default_value=os.path.join(cfg, 'collision.yaml')),
+            'named_poses_config', default_value=in_config_dir('named_poses.yaml')),
         DeclareLaunchArgument(
-            'sequences_config', default_value=os.path.join(cfg, 'sequences.yaml')),
+            'collision_config', default_value=in_config_dir('collision.yaml')),
+        DeclareLaunchArgument(
+            'sequences_config', default_value=in_config_dir('sequences.yaml')),
         DeclareLaunchArgument(
             'srdf_config', default_value=os.path.join(cfg, 'walker_s2_augmented.srdf'),
-            description='MoveIt .srdf; its disable_collisions feed the ACM. '
-                        'Set to "" to disable, or override with your own.'),
+            description='MoveIt .srdf; its disable_collisions feed the ACM. Pass your '
+                        'robot\'s SRDF, or "" to rely on auto-disable only.'),
         DeclareLaunchArgument('robot_description', default_value=''),
         DeclareLaunchArgument(
             'robot_description_file', default_value='',

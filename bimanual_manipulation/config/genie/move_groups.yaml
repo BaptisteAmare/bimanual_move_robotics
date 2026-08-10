@@ -1,0 +1,155 @@
+# ---------------------------------------------------------------------------
+# Move groups for the Agibot / Genie G2 (torso 5 DOF + two 7-DOF arms).
+#
+# Kinematic tree (from the URDF):
+#   base_link
+#     -> idx01..idx05 body_joint1..5  -> body_link5
+#         -> arm_base_link (fixed)
+#             -> idx21..idx27 arm_l_joint1..7 -> arm_l_end_link   (left tip)
+#             -> idx61..idx67 arm_r_joint1..7 -> arm_r_end_link   (right tip)
+#
+# IMPORTANT — controllers: the `name` of each controller below must match a
+# FollowJointTrajectory action server on your robot. Check with:
+#     ros2 control list_controllers
+#     ros2 action list | grep follow_joint_trajectory
+# The ros2_control you shared only declares the hardware interfaces; you still
+# need JointTrajectoryController instances (one per group) in your
+# controllers.yaml. Adjust the names / joints here to match them. If your
+# ros2_control uses a joint-name prefix, add it to every joint below.
+# ---------------------------------------------------------------------------
+
+planning:
+  default_velocity_scaling: 0.30
+  default_acceleration_scaling: 0.30
+  default_joint_velocity: 1.0
+  default_joint_acceleration: 10.0
+  execution_timeout: 10.0
+  acceleration_limiting: false
+  avoid_obstacles: true
+  rrt_max_iterations: 4000
+  rrt_step: 0.35
+  rrt_edge_resolution: 0.06
+
+groups:
+
+  left_arm:
+    base_link: arm_base_link
+    tip_link: arm_l_end_link
+    cartesian_step: 0.005
+    joints:
+      - idx21_arm_l_joint1
+      - idx22_arm_l_joint2
+      - idx23_arm_l_joint3
+      - idx24_arm_l_joint4
+      - idx25_arm_l_joint5
+      - idx26_arm_l_joint6
+      - idx27_arm_l_joint7
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+
+  right_arm:
+    base_link: arm_base_link
+    tip_link: arm_r_end_link
+    cartesian_step: 0.005
+    joints:
+      - idx61_arm_r_joint1
+      - idx62_arm_r_joint2
+      - idx63_arm_r_joint3
+      - idx64_arm_r_joint4
+      - idx65_arm_r_joint5
+      - idx66_arm_r_joint6
+      - idx67_arm_r_joint7
+    controllers:
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+
+  # Both arms at once (named/joint moves + dual-arm coordinated Cartesian via
+  # cartesian_subgroups). Each controller gets only its own 7 joints.
+  both_arms:
+    cartesian_subgroups: [left_arm, right_arm]
+    joints:
+      - idx21_arm_l_joint1
+      - idx22_arm_l_joint2
+      - idx23_arm_l_joint3
+      - idx24_arm_l_joint4
+      - idx25_arm_l_joint5
+      - idx26_arm_l_joint6
+      - idx27_arm_l_joint7
+      - idx61_arm_r_joint1
+      - idx62_arm_r_joint2
+      - idx63_arm_r_joint3
+      - idx64_arm_r_joint4
+      - idx65_arm_r_joint5
+      - idx66_arm_r_joint6
+      - idx67_arm_r_joint7
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - idx21_arm_l_joint1
+          - idx22_arm_l_joint2
+          - idx23_arm_l_joint3
+          - idx24_arm_l_joint4
+          - idx25_arm_l_joint5
+          - idx26_arm_l_joint6
+          - idx27_arm_l_joint7
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - idx61_arm_r_joint1
+          - idx62_arm_r_joint2
+          - idx63_arm_r_joint3
+          - idx64_arm_r_joint4
+          - idx65_arm_r_joint5
+          - idx66_arm_r_joint6
+          - idx67_arm_r_joint7
+
+  # Torso alone (5 DOF): joint-space / named moves only (no single tip).
+  body:
+    joints:
+      - idx01_body_joint1     # pitch  [-1.08, 0.0]
+      - idx02_body_joint2     # pitch  [ 0.0, 2.65]
+      - idx03_body_joint3     # pitch  [-1.92, 1.12]
+      - idx04_body_joint4     # roll   [-0.44, 0.44]
+      - idx05_body_joint5     # yaw    [-3.05, 3.05]
+    controllers:
+      - name: /body_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+
+  # OPTIONAL — left arm + torso yaw as one Cartesian chain, like the Walker's
+  # waist+arm group: the tip is held/reached in base_link; the torso pitch/roll
+  # are locked (held fixed) and the torso YAW (idx05) only assists when the arm
+  # alone can't reach. Uncomment and make sure /body_controller can command
+  # idx05_body_joint5 (a JTC accepts a subset of its joints).
+  #
+  # left_arm_with_torso:
+  #   base_link: base_link
+  #   tip_link: arm_l_end_link
+  #   joints:
+  #     - idx01_body_joint1
+  #     - idx02_body_joint2
+  #     - idx03_body_joint3
+  #     - idx04_body_joint4
+  #     - idx05_body_joint5
+  #     - idx21_arm_l_joint1
+  #     - idx22_arm_l_joint2
+  #     - idx23_arm_l_joint3
+  #     - idx24_arm_l_joint4
+  #     - idx25_arm_l_joint5
+  #     - idx26_arm_l_joint6
+  #     - idx27_arm_l_joint7
+  #   locked_joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3, idx04_body_joint4]
+  #   assist_joints: [idx05_body_joint5]
+  #   controllers:
+  #     - name: /left_arm_controller/follow_joint_trajectory
+  #       type: follow_joint_trajectory
+  #       joints: [idx21_arm_l_joint1, idx22_arm_l_joint2, idx23_arm_l_joint3,
+  #                idx24_arm_l_joint4, idx25_arm_l_joint5, idx26_arm_l_joint6, idx27_arm_l_joint7]
+  #     - name: /body_controller/follow_joint_trajectory
+  #       type: follow_joint_trajectory
+  #       joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3,
+  #                idx04_body_joint4, idx05_body_joint5]
+
+# Head (idx11..idx13) and chassis are not manipulation groups; leave them to
+# their own controllers.
