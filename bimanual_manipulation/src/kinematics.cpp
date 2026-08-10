@@ -83,7 +83,6 @@ bool GroupKinematics::init(
   Eigen::Matrix<double, 6, 1> weights;
   weights << 1.0, 1.0, 1.0, 0.0, 0.0, 0.0;
   ik_pos_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(chain_, weights, 1e-5, 500);
-  jac_ = std::make_shared<KDL::ChainJntToJacSolver>(chain_);
   return true;
 }
 
@@ -181,95 +180,106 @@ bool GroupKinematics::ik(
   return false;
 }
 
+void GroupKinematics::ensureReduced(const std::vector<double> & seed) const
+{
+  // Current locked values (group order), used as the cache key.
+  std::vector<double> lv;
+  for (size_t i = 0; i < locked_mask_.size(); ++i) {
+    if (locked_mask_[i]) {lv.push_back(seed[chain_to_group_[i]]);}
+  }
+  if (reduced_ik_ && lv.size() == reduced_locked_vals_.size()) {
+    bool same = true;
+    for (size_t k = 0; k < lv.size(); ++k) {
+      if (std::abs(lv[k] - reduced_locked_vals_[k]) > 1e-9) {same = false; break;}
+    }
+    if (same) {return;}
+  }
+
+  // Rebuild: bake each locked joint into a fixed segment at its current value.
+  reduced_chain_ = KDL::Chain();
+  reduced_to_group_.clear();
+  reduced_limits_.clear();
+  unsigned int aj = 0;   // actuated-joint index in the full chain
+  for (unsigned int s = 0; s < chain_.getNrOfSegments(); ++s) {
+    const KDL::Segment & seg = chain_.getSegment(s);
+    const KDL::Joint & j = seg.getJoint();
+    if (j.getType() == KDL::Joint::None) {
+      reduced_chain_.addSegment(seg);   // already fixed
+      continue;
+    }
+    if (locked_mask_[aj]) {
+      const double v = seed[chain_to_group_[aj]];
+      const KDL::Frame baked = j.pose(v) * seg.getFrameToTip();
+      reduced_chain_.addSegment(
+        KDL::Segment(seg.getName(), KDL::Joint(j.getName(), KDL::Joint::None), baked));
+    } else {
+      reduced_chain_.addSegment(seg);
+      reduced_to_group_.push_back(chain_to_group_[aj]);
+      reduced_limits_.push_back(limits_[aj]);
+    }
+    ++aj;
+  }
+
+  reduced_fk_ = std::make_shared<KDL::ChainFkSolverPos_recursive>(reduced_chain_);
+  reduced_ik_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(reduced_chain_, 1e-5, 500);
+  Eigen::Matrix<double, 6, 1> weights;
+  weights << 1.0, 1.0, 1.0, 0.0, 0.0, 0.0;
+  reduced_ik_pos_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(reduced_chain_, weights, 1e-5, 500);
+  reduced_locked_vals_ = lv;
+}
+
 bool GroupKinematics::ikLocked(
   const Eigen::Isometry3d & goal, const std::vector<double> & seed,
   std::vector<double> & q, bool limit_jump, bool position_only,
   const std::function<bool(const std::vector<double> &)> & accept) const
 {
-  const unsigned int n = chain_.getNrOfJoints();
-  if (n == 0) {return false;}
+  ensureReduced(seed);
+  const unsigned int nr = reduced_chain_.getNrOfJoints();   // free joints only
+  if (nr == 0) {return false;}
   const KDL::Frame goal_kdl = eigenToKdl(goal);
+  const auto & solver = position_only ? reduced_ik_pos_ : reduced_ik_;
 
-  // Levenberg-Marquardt descent holding the locked joints fixed (their Jacobian
-  // column and step are zeroed). Adaptive damping keeps it stable near
-  // singularities and accurate away from them.
-  auto solve = [&](KDL::JntArray q_kdl, std::vector<double> & out) -> bool {
-      KDL::Jacobian jac(n);
-      KDL::Frame f;
-      Eigen::Matrix<double, 6, 1> err;
-      auto errAt = [&](const KDL::JntArray & qq) -> double {
-          fk_->JntToCart(qq, f);
-          const KDL::Twist t = KDL::diff(f, goal_kdl);
-          err << t.vel.x(), t.vel.y(), t.vel.z(), t.rot.x(), t.rot.y(), t.rot.z();
-          if (position_only) {err[3] = err[4] = err[5] = 0.0;}
-          return err.norm();
-        };
-
-      double lambda = 0.01;
-      for (int iter = 0; iter < 200; ++iter) {
-        const double ec = errAt(q_kdl);   // refresh err/f for the current config
-        if (ec < 1e-7) {break;}
-        if (jac_->JntToJac(q_kdl, jac) < 0) {return false;}
-        Eigen::Matrix<double, 6, Eigen::Dynamic> J = jac.data;
-        if (position_only) {J.bottomRows(3).setZero();}
-        for (unsigned int i = 0; i < n; ++i) {
-          if (locked_mask_[i]) {J.col(i).setZero();}
-        }
-        const Eigen::Matrix<double, 6, 1> err_c = err;   // error at q_kdl
-        const Eigen::Matrix<double, 6, 6> A =
-          J * J.transpose() + lambda * lambda * Eigen::Matrix<double, 6, 6>::Identity();
-        Eigen::VectorXd dq = J.transpose() * A.ldlt().solve(err_c);
-        const double mx = dq.cwiseAbs().maxCoeff();
-        if (mx > 0.2) {dq *= 0.2 / mx;}   // clamp the step
-
-        KDL::JntArray q_try = q_kdl;
-        for (unsigned int i = 0; i < n; ++i) {
-          if (locked_mask_[i]) {continue;}
-          q_try(i) = std::clamp(q_kdl(i) + dq(i), limits_[i].first, limits_[i].second);
-        }
-        if (errAt(q_try) < ec) {
-          q_kdl = q_try;
-          lambda = std::max(lambda * 0.5, 1e-6);   // trust the linearization more
-        } else {
-          lambda = std::min(lambda * 2.0, 1e3);    // more damping, retry from q_kdl
-        }
-      }
-      if (errAt(q_kdl) > 1e-4) {return false;}   // did not converge
-
-      out = seed;
-      for (unsigned int i = 0; i < n; ++i) {
-        const int gi = chain_to_group_[i];
-        if (q_kdl(i) < limits_[i].first - 1e-6 || q_kdl(i) > limits_[i].second + 1e-6) {
+  // Solve on the reduced chain; locked joints keep their seed value.
+  auto attempt = [&](const std::vector<double> & start, std::vector<double> & out) -> bool {
+      KDL::JntArray q_init(nr), q_out(nr);
+      for (unsigned int i = 0; i < nr; ++i) {q_init(i) = start[reduced_to_group_[i]];}
+      if (solver->CartToJnt(q_init, goal_kdl, q_out) < 0) {return false;}
+      out = seed;   // locked joints stay put
+      for (unsigned int i = 0; i < nr; ++i) {
+        const int gi = reduced_to_group_[i];
+        if (q_out(i) < reduced_limits_[i].first - 1e-6 ||
+          q_out(i) > reduced_limits_[i].second + 1e-6)
+        {
           return false;
         }
-        if (limit_jump && !locked_mask_[i] && std::abs(q_kdl(i) - seed[gi]) > kMaxJointJump) {
-          return false;
-        }
-        out[gi] = q_kdl(i);
+        if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {return false;}
+        out[gi] = q_out(i);
       }
       if (accept && !accept(out)) {return false;}
       return true;
     };
 
-  KDL::JntArray q0(n);
-  for (unsigned int i = 0; i < n; ++i) {q0(i) = seed[chain_to_group_[i]];}
-  if (solve(q0, q)) {return true;}
+  if (attempt(seed, q)) {return true;}
 
-  // Path following (limit_jump) must stay continuous with the previous
-  // waypoint, so it never jumps to a far restart — a failed solve fails the
-  // path. Only one-shot goals explore with restarts.
+  // Path following (limit_jump) must stay continuous with the previous waypoint,
+  // so it never jumps to a far restart. Only one-shot goals explore.
   if (limit_jump) {return false;}
 
   static thread_local std::mt19937 rng(1618033u);
+  std::vector<double> start = seed;
   for (int k = 0; k < 30; ++k) {
-    KDL::JntArray qs(n);
-    for (unsigned int i = 0; i < n; ++i) {
-      const int gi = chain_to_group_[i];
-      if (locked_mask_[i]) {qs(i) = seed[gi]; continue;}
-      std::uniform_real_distribution<double> jitter(-0.5, 0.5);
-      qs(i) = std::clamp(seed[gi] + jitter(rng), limits_[i].first, limits_[i].second);
+    for (unsigned int i = 0; i < nr; ++i) {
+      const int gi = reduced_to_group_[i];
+      double lo = reduced_limits_[i].first, hi = reduced_limits_[i].second;
+      if (std::isfinite(lo) && std::isfinite(hi)) {
+        std::uniform_real_distribution<double> uni(lo, hi);
+        start[gi] = uni(rng);
+      } else {
+        std::uniform_real_distribution<double> uni(-3.14159, 3.14159);
+        start[gi] = seed[gi] + uni(rng);
+      }
     }
-    if (solve(qs, q)) {return true;}
+    if (attempt(start, q)) {return true;}
   }
   return false;
 }
