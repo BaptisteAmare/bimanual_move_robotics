@@ -192,7 +192,9 @@ MotionStep parseStep(const YAML::Node & s)
       step.joint_target = asDoubleList(s["deltas"]);
       if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["joint_target"]);}
       if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["values"]);}
-      step.driven_absolute = s["absolute"].as<bool>(false);
+      // Accept either key name; "driven_absolute" mirrors the message field.
+      step.driven_absolute =
+        s["driven_absolute"].as<bool>(s["absolute"].as<bool>(false));
     }
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
