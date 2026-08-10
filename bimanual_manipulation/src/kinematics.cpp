@@ -190,41 +190,51 @@ bool GroupKinematics::ikLocked(
   if (n == 0) {return false;}
   const KDL::Frame goal_kdl = eigenToKdl(goal);
 
-  // Damped least-squares descent from a start configuration, holding the locked
-  // joints fixed (their Jacobian column and step are zeroed).
+  // Levenberg-Marquardt descent holding the locked joints fixed (their Jacobian
+  // column and step are zeroed). Adaptive damping keeps it stable near
+  // singularities and accurate away from them.
   auto solve = [&](KDL::JntArray q_kdl, std::vector<double> & out) -> bool {
       KDL::Jacobian jac(n);
       KDL::Frame f;
       Eigen::Matrix<double, 6, 1> err;
-      auto twist = [&](const KDL::Frame & cur) {
-          const KDL::Twist t = KDL::diff(cur, goal_kdl);
+      auto errAt = [&](const KDL::JntArray & qq) -> double {
+          fk_->JntToCart(qq, f);
+          const KDL::Twist t = KDL::diff(f, goal_kdl);
           err << t.vel.x(), t.vel.y(), t.vel.z(), t.rot.x(), t.rot.y(), t.rot.z();
           if (position_only) {err[3] = err[4] = err[5] = 0.0;}
+          return err.norm();
         };
-      for (int iter = 0; iter < 150; ++iter) {
-        if (fk_->JntToCart(q_kdl, f) < 0) {return false;}
-        twist(f);
-        if (err.norm() < 1e-6) {break;}
+
+      double lambda = 0.01;
+      for (int iter = 0; iter < 200; ++iter) {
+        const double ec = errAt(q_kdl);   // refresh err/f for the current config
+        if (ec < 1e-7) {break;}
         if (jac_->JntToJac(q_kdl, jac) < 0) {return false;}
         Eigen::Matrix<double, 6, Eigen::Dynamic> J = jac.data;
         if (position_only) {J.bottomRows(3).setZero();}
         for (unsigned int i = 0; i < n; ++i) {
           if (locked_mask_[i]) {J.col(i).setZero();}
         }
-        const double lambda = 0.05;
+        const Eigen::Matrix<double, 6, 1> err_c = err;   // error at q_kdl
         const Eigen::Matrix<double, 6, 6> A =
           J * J.transpose() + lambda * lambda * Eigen::Matrix<double, 6, 6>::Identity();
-        Eigen::VectorXd dq = J.transpose() * A.ldlt().solve(err);
+        Eigen::VectorXd dq = J.transpose() * A.ldlt().solve(err_c);
         const double mx = dq.cwiseAbs().maxCoeff();
-        if (mx > 0.1) {dq *= 0.1 / mx;}   // clamp the step
+        if (mx > 0.2) {dq *= 0.2 / mx;}   // clamp the step
+
+        KDL::JntArray q_try = q_kdl;
         for (unsigned int i = 0; i < n; ++i) {
           if (locked_mask_[i]) {continue;}
-          q_kdl(i) = std::clamp(q_kdl(i) + dq(i), limits_[i].first, limits_[i].second);
+          q_try(i) = std::clamp(q_kdl(i) + dq(i), limits_[i].first, limits_[i].second);
+        }
+        if (errAt(q_try) < ec) {
+          q_kdl = q_try;
+          lambda = std::max(lambda * 0.5, 1e-6);   // trust the linearization more
+        } else {
+          lambda = std::min(lambda * 2.0, 1e3);    // more damping, retry from q_kdl
         }
       }
-      if (fk_->JntToCart(q_kdl, f) < 0) {return false;}
-      twist(f);
-      if (err.norm() > 1e-3) {return false;}   // did not converge
+      if (errAt(q_kdl) > 1e-4) {return false;}   // did not converge
 
       out = seed;
       for (unsigned int i = 0; i < n; ++i) {
@@ -245,9 +255,13 @@ bool GroupKinematics::ikLocked(
   for (unsigned int i = 0; i < n; ++i) {q0(i) = seed[chain_to_group_[i]];}
   if (solve(q0, q)) {return true;}
 
-  // Random restarts on the free joints (locked ones stay at their seed value).
+  // Path following (limit_jump) must stay continuous with the previous
+  // waypoint, so it never jumps to a far restart — a failed solve fails the
+  // path. Only one-shot goals explore with restarts.
+  if (limit_jump) {return false;}
+
   static thread_local std::mt19937 rng(1618033u);
-  for (int k = 0; k < 20; ++k) {
+  for (int k = 0; k < 30; ++k) {
     KDL::JntArray qs(n);
     for (unsigned int i = 0; i < n; ++i) {
       const int gi = chain_to_group_[i];
