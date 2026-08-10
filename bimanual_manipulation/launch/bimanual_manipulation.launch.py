@@ -1,80 +1,88 @@
 # Launch the bimanual manipulation server.
 #
-# Everything robot-specific lives in YAML + the SRDF, nothing in the code, so
-# supporting several robots is just a matter of pointing at a different config
-# folder. Put each robot's files in their own directory and select it with one
-# argument:
+# Everything robot-specific lives in one folder per robot, with standard file
+# names. Switching robots is a single argument:
 #
-#   ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
-#       config_dir:=/path/to/config/genie \
-#       srdf_config:=/path/to/genie.srdf \
-#       robot_description_file:=/path/to/genie.urdf
+#     ros2 launch bimanual_manipulation bimanual_manipulation.launch.py robot:=genie
 #
-# `config_dir` sets where move_groups.yaml / named_poses.yaml / collision.yaml /
-# sequences.yaml are read from (default: this package's config/). Any single file
-# can still be overridden individually. The URDF is taken from the
-# /robot_description topic by default; set robot_description_file:=... to feed a
-# full-geometry URDF from disk instead.
+# `robot:=<name>` reads config/<name>/ :
+#     move_groups.yaml  named_poses.yaml  collision.yaml  sequences.yaml
+#     model.srdf   (optional — used if present)
+#     model.urdf   (optional — a full-geometry URDF; used if present, else the
+#                   /robot_description topic is used)
+#
+# Point `config_dir` at any absolute folder to use configs outside the package.
+# Any single file can still be overridden (move_groups_config, srdf_config, ...).
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def generate_launch_description():
+def launch_setup(context, *args, **kwargs):
     pkg = get_package_share_directory('bimanual_manipulation')
-    cfg = os.path.join(pkg, 'config')
+    robot = LaunchConfiguration('robot').perform(context)
+    config_dir = LaunchConfiguration('config_dir').perform(context) \
+        or os.path.join(pkg, 'config', robot)
 
-    def in_config_dir(name):
-        return PathJoinSubstitution([LaunchConfiguration('config_dir'), name])
+    def pick(arg_name, filename, required):
+        # An explicit override wins; else use config_dir/filename. Optional
+        # files (srdf/urdf) resolve to '' when absent so the server skips them.
+        override = LaunchConfiguration(arg_name).perform(context)
+        if override:
+            return override
+        path = os.path.join(config_dir, filename)
+        if required or os.path.exists(path):
+            return path
+        return ''
 
-    args = [
-        DeclareLaunchArgument(
-            'config_dir', default_value=cfg,
-            description='Directory holding this robot\'s move_groups.yaml / '
-                        'named_poses.yaml / collision.yaml / sequences.yaml. '
-                        'One folder per robot; select it here.'),
-        DeclareLaunchArgument(
-            'move_groups_config', default_value=in_config_dir('move_groups.yaml')),
-        DeclareLaunchArgument(
-            'named_poses_config', default_value=in_config_dir('named_poses.yaml')),
-        DeclareLaunchArgument(
-            'collision_config', default_value=in_config_dir('collision.yaml')),
-        DeclareLaunchArgument(
-            'sequences_config', default_value=in_config_dir('sequences.yaml')),
-        DeclareLaunchArgument(
-            'srdf_config', default_value=os.path.join(cfg, 'walker_s2_augmented.srdf'),
-            description='MoveIt .srdf; its disable_collisions feed the ACM. Pass your '
-                        'robot\'s SRDF, or "" to rely on auto-disable only.'),
-        DeclareLaunchArgument('robot_description', default_value=''),
-        DeclareLaunchArgument(
-            'robot_description_file', default_value='',
-            description='Path to a URDF with collision/visual meshes; takes priority '
-                        'over the topic. Use this when the live /robot_description is '
-                        'a kinematics-only URDF (no geometry).'),
-        DeclareLaunchArgument('robot_description_topic', default_value='/robot_description'),
-        DeclareLaunchArgument('gripper_max_effort', default_value='50.0'),
-    ]
+    if not os.path.isdir(config_dir):
+        raise RuntimeError(
+            "config folder '%s' not found — pass a valid robot:=<name> "
+            "(a folder under config/) or config_dir:=<path>." % config_dir)
 
-    node = Node(
+    params = {
+        'move_groups_config': pick('move_groups_config', 'move_groups.yaml', True),
+        'named_poses_config': pick('named_poses_config', 'named_poses.yaml', True),
+        'collision_config': pick('collision_config', 'collision.yaml', True),
+        'sequences_config': pick('sequences_config', 'sequences.yaml', True),
+        'srdf_config': pick('srdf_config', 'model.srdf', False),
+        'robot_description': LaunchConfiguration('robot_description').perform(context),
+        'robot_description_file': pick('robot_description_file', 'model.urdf', False),
+        'robot_description_topic': LaunchConfiguration('robot_description_topic').perform(context),
+        'gripper_max_effort': float(LaunchConfiguration('gripper_max_effort').perform(context)),
+    }
+
+    return [Node(
         package='bimanual_manipulation',
         executable='manipulation_server_node',
         name='bimanual_manipulation_server',
         output='screen',
-        parameters=[{
-            'move_groups_config': LaunchConfiguration('move_groups_config'),
-            'named_poses_config': LaunchConfiguration('named_poses_config'),
-            'collision_config': LaunchConfiguration('collision_config'),
-            'sequences_config': LaunchConfiguration('sequences_config'),
-            'srdf_config': LaunchConfiguration('srdf_config'),
-            'robot_description': LaunchConfiguration('robot_description'),
-            'robot_description_file': LaunchConfiguration('robot_description_file'),
-            'robot_description_topic': LaunchConfiguration('robot_description_topic'),
-            'gripper_max_effort': LaunchConfiguration('gripper_max_effort'),
-        }],
-    )
+        parameters=[params],
+    )]
 
-    return LaunchDescription(args + [node])
+
+def generate_launch_description():
+    args = [
+        DeclareLaunchArgument(
+            'robot', default_value='walker_s2',
+            description='Robot config folder under config/ (config/<robot>/). '
+                        'The one flag you need to switch robots.'),
+        DeclareLaunchArgument(
+            'config_dir', default_value='',
+            description='Absolute config folder; overrides config/<robot>/.'),
+        # Optional per-file overrides (empty -> taken from the robot folder).
+        DeclareLaunchArgument('move_groups_config', default_value=''),
+        DeclareLaunchArgument('named_poses_config', default_value=''),
+        DeclareLaunchArgument('collision_config', default_value=''),
+        DeclareLaunchArgument('sequences_config', default_value=''),
+        DeclareLaunchArgument('srdf_config', default_value=''),
+        DeclareLaunchArgument('robot_description', default_value=''),
+        DeclareLaunchArgument('robot_description_file', default_value=''),
+        DeclareLaunchArgument('robot_description_topic', default_value='/robot_description'),
+        DeclareLaunchArgument('gripper_max_effort', default_value='50.0'),
+    ]
+    return LaunchDescription(args + [OpaqueFunction(function=launch_setup)])

@@ -98,33 +98,27 @@ The server needs the URDF and the controllers up (`ros2_control` with a
 `FollowJointTrajectory` controller per arm and, optionally, a `GripperCommand`
 controller per gripper).
 
-```bash
-ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
-    move_groups_config:=/path/to/move_groups.yaml \
-    named_poses_config:=/path/to/named_poses.yaml \
-    collision_config:=/path/to/collision.yaml \
-    sequences_config:=/path/to/sequences.yaml \
-    srdf_config:=/path/to/robot.srdf \
-    robot_description_file:=/path/to/full_robot.urdf
-```
-
-All arguments default to the example configs in `bimanual_manipulation/config/`
-— edit those or pass your own to match your robot's link/joint/controller names.
-
-**Multiple robots.** Nothing robot-specific lives in the code — it's all in the
-YAML files + the SRDF. Put each robot's four YAML files in their own folder
-(e.g. `config/genie/`) and select it with one argument:
+**One robot = one folder.** Everything robot-specific lives in `config/<robot>/`
+with standard file names, so switching robots is a **single argument**:
 
 ```bash
-ros2 launch bimanual_manipulation bimanual_manipulation.launch.py \
-    config_dir:=/path/to/config/genie \
-    srdf_config:=/path/to/genie.srdf \      # or srdf_config:="" to rely on auto-disable
-    robot_description_file:=/path/to/genie.urdf
+ros2 launch bimanual_manipulation bimanual_manipulation.launch.py robot:=walker_s2
+ros2 launch bimanual_manipulation bimanual_manipulation.launch.py robot:=genie
 ```
 
-`config_dir` sets where `move_groups.yaml` / `named_poses.yaml` /
-`collision.yaml` / `sequences.yaml` are read from; any single file can still be
-overridden individually. A ready-to-adapt `config/genie/` set is included.
+`robot:=<name>` reads `config/<name>/`:
+
+| File | Role |
+|---|---|
+| `move_groups.yaml`, `named_poses.yaml`, `collision.yaml`, `sequences.yaml` | required configs |
+| `model.srdf` | optional — the SRDF ACM, used if present |
+| `model.urdf` | optional — a full-geometry URDF, used if present, else the `/robot_description` topic is used |
+
+To add a robot, copy an existing folder, drop in its `model.urdf`/`model.srdf`,
+and edit the four YAMLs. `config/walker_s2/` and `config/genie/` are included as
+references. Overrides remain available: `config_dir:=<abs path>` points outside
+the package, and any single file can be replaced (`move_groups_config:=...`,
+`srdf_config:=...`, `robot_description_file:=...`, `robot_description:=...`).
 
 **Where the URDF comes from** (priority order):
 1. `robot_description` parameter (a URDF string), else
