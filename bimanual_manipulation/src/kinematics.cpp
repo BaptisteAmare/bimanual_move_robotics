@@ -252,18 +252,24 @@ bool GroupKinematics::ikLocked(
           ", pose unreachable or singular)";
         return false;
       }
+      // KDL's LMA ignores joint limits; clamp the result and re-check that the
+      // pose is still reached (tiny overshoots are fixed, true violations fail).
+      for (unsigned int i = 0; i < nr; ++i) {
+        q_out(i) = std::clamp(q_out(i), reduced_limits_[i].first, reduced_limits_[i].second);
+      }
+      KDL::Frame f;
+      reduced_fk_->JntToCart(q_out, f);
+      const KDL::Twist e = KDL::diff(f, goal_kdl);
+      const double perr = e.vel.Norm();
+      const double rerr = position_only ? 0.0 : e.rot.Norm();
+      if (perr > 2e-3 || rerr > 5e-3) {
+        why = "unreachable within joint limits (residual " + std::to_string(perr) +
+          " m, " + std::to_string(rerr) + " rad)";
+        return false;
+      }
       out = seed;   // locked joints stay put
       for (unsigned int i = 0; i < nr; ++i) {
         const int gi = reduced_to_group_[i];
-        if (q_out(i) < reduced_limits_[i].first - 1e-6 ||
-          q_out(i) > reduced_limits_[i].second + 1e-6)
-        {
-          why = "free joint #" + std::to_string(i) + " out of limits (" +
-            std::to_string(q_out(i)) + " not in [" +
-            std::to_string(reduced_limits_[i].first) + ", " +
-            std::to_string(reduced_limits_[i].second) + "])";
-          return false;
-        }
         if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
           why = "free joint #" + std::to_string(i) + " jumped " +
             std::to_string(std::abs(q_out(i) - seed[gi])) + " rad from the previous waypoint";
