@@ -5,13 +5,31 @@ sequences:
 
   both_ready:
     - {type: named, group: both_arms, named: ready}
+    - {type: named, group: both_arms, named: ready}
+    - {type: named, group: body, named: home}
 
-  home:
-    - {type: named, group: both_arms, named: home}
+  crf:
+    - {type: named, group: body, named: up_front}
+    - {type: cartesian, group: right_arm, reference_frame: slot_1,
+       position: [0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: named, group: left_arm, named: above_box}
+    - {type: hold_tip, group: waist_right_arm, joint_target: [-1.2]}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.2], cartesian_path: true}
+    - {type: hold_tip, group: waist_right_arm, joint_target: [-0.37]}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.35], cartesian_path: true}
+    - {type: named, group: left_arm, named: pre_grasp_crf}
+    - {type: cartesian, group: left_arm, reference_frame: arm_r_end_link,
+       position: [0.0, 0.0, 0.60], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: named, group: body, named: up_back}
+    - {type: named, group: body, named: home}
 
-  # Straight-line reach with the left hand: 10 cm along the tool axis, then back.
-  reach_left:
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.10],
-       offset_in_tip_frame: true, cartesian_path: true, velocity_scaling: 0.15}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10],
-       offset_in_tip_frame: true, cartesian_path: true, velocity_scaling: 0.15}
+
+  crf_drop:
+    - {type: named, group: body, named: up_front}
+    - {type: cartesian, group: both_arms, offset: [0.0, -0.05, 0.0]}   # monte 5 cm
+    - {type: named, group: body, named: drop_front}
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.05, 0.0]}   # descend 5 cm
+
+
+
+

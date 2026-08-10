@@ -70,6 +70,36 @@ groups:
       - name: /right_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
 
+  right_arm_with_torso:
+    base_link: base_link
+    tip_link: R_industrial_hand_contact_frame
+    joints:
+      - waist_yaw_joint
+      - waist_pitch_joint
+      - R_shoulder_pitch_joint
+      - R_shoulder_roll_joint
+      - R_shoulder_yaw_joint
+      - R_elbow_roll_joint
+      - R_elbow_yaw_joint
+      - R_wrist_pitch_joint
+      - R_wrist_roll_joint
+    locked_joints: [waist_pitch_joint]
+    controllers:
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - R_shoulder_pitch_joint
+          - R_shoulder_roll_joint
+          - R_shoulder_yaw_joint
+          - R_elbow_roll_joint
+          - R_elbow_yaw_joint
+          - R_wrist_pitch_joint
+          - R_wrist_roll_joint
+      - name: /waist_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: 
+          - waist_yaw_joint
+
   # Both arms commanded at once: one joint-space goal, split across the two
   # arm controllers so they move simultaneously. No tip_link -> joint/named
   # moves; but with cartesian_subgroups it ALSO does dual-arm coordinated
@@ -120,7 +150,7 @@ groups:
   # waist_controller / head_controller.
   #
   waist:
-    joints: [waist_yaw, waist_pitch]
+    joints: [waist_yaw_joint, waist_pitch_joint]
     controllers:
       - name: /waist_controller/follow_joint_trajectory
         type: follow_joint_trajectory

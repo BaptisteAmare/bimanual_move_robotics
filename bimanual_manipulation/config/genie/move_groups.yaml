@@ -151,5 +151,42 @@ groups:
   #       joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3,
   #                idx04_body_joint4, idx05_body_joint5]
 
-# Head (idx11..idx13) and chassis are not manipulation groups; leave them to
-# their own controllers.
+  # Constrained "hold the tip" group: drive the waist while the RIGHT arm
+  # compensates so the hand stays fixed (e.g. hand attached to an object).
+  # A TYPE_HOLD_TIP step drives `driven_joints` by the given deltas; the
+  # `compensating_subgroup` (right_arm, whose base_link=torso_link is below the
+  # waist) is IK-solved each step to keep tip_link fixed in base_link. Fix the
+  # joint / controller names to your robot before enabling.
+  
+  waist_right_arm:
+    base_link: chassis_link            # frame the hand is held fixed in
+    tip_link: arm_r_end_link     # the held end effector
+    driven_joints: [idx05_body_joint5]
+    compensating_subgroup: right_arm
+    joints:
+      - idx01_body_joint1
+      - idx02_body_joint2
+      - idx03_body_joint3
+      - idx04_body_joint4
+      - idx05_body_joint5
+      - idx61_arm_r_joint1
+      - idx62_arm_r_joint2
+      - idx63_arm_r_joint3
+      - idx64_arm_r_joint4
+      - idx65_arm_r_joint5
+      - idx66_arm_r_joint6
+      - idx67_arm_r_joint7
+    controllers:
+      - name: /body_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [idx05_body_joint5]
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - idx61_arm_r_joint1
+          - idx62_arm_r_joint2
+          - idx63_arm_r_joint3
+          - idx64_arm_r_joint4
+          - idx65_arm_r_joint5
+          - idx66_arm_r_joint6
+          - idx67_arm_r_joint7

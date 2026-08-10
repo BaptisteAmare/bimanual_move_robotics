@@ -181,8 +181,13 @@ MotionStep parseStep(const YAML::Node & s)
     step.gripper_position = s["position"].as<double>(0.0);
   } else if (type == "hold_tip") {
     step.type = MotionStep::TYPE_HOLD_TIP;
-    step.joint_target = asDoubleList(s["deltas"]);  // driven-joint deltas [rad]
-    if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["values"]);}
+    step.joint_target = asDoubleList(s["joint_target"]);
+    if (step.joint_target.empty()) {
+      step.joint_target = asDoubleList(s["deltas"]);
+    }
+    if (step.joint_target.empty()) {
+      step.joint_target = asDoubleList(s["values"]);
+    }
     step.free_orientation = s["free_orientation"].as<bool>(false);
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
