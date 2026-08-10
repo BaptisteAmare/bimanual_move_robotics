@@ -233,6 +233,7 @@ Moves the group tip. How the goal pose is resolved:
 | `pose_target` | target pose (in `reference_frame` if set, else in the arm's base frame). |
 | `relative` + `offset` (+ `offset_in_tip_frame`) | if no `reference_frame`: offset from the current tip, in the tip frame (`offset_in_tip_frame:true`) or base frame. |
 | `cartesian_path` | `true` = straight line of the tip (precise approach/retreat, never re-routed); `false` = IK once + joint interpolation (robust, fast reach). |
+| `free_orientation` | `false` (default) holds the tip orientation; `true` tracks only the **position** and lets orientation drift — extends reach when a constrained arm (e.g. with `locked_joints`) cannot hold the full pose along the whole move. |
 | `velocity_scaling` / `acceleration_scaling` | per-step speed (`0` → group default). |
 
 ```bash

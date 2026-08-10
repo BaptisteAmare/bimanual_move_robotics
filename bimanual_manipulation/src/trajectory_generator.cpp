@@ -54,7 +54,7 @@ bool TrajectoryGenerator::cartesianPath(
   const GroupKinematics & kin, const std::vector<double> & start,
   const Eigen::Isometry3d & start_pose, const Eigen::Isometry3d & goal_pose,
   const MotionLimits & motion, const StateValidator & valid,
-  JointPath & path, std::string & error)
+  JointPath & path, std::string & error, bool position_only)
 {
   const Eigen::Vector3d p0 = start_pose.translation();
   const Eigen::Vector3d p1 = goal_pose.translation();
@@ -82,7 +82,7 @@ bool TrajectoryGenerator::cartesianPath(
     pose.linear() = q0.slerp(f, q1).toRotationMatrix();
 
     std::vector<double> q;
-    if (!kin.ik(pose, seed, q)) {
+    if (!kin.ik(pose, seed, q, /*limit_jump=*/true, position_only)) {
       error = "IK failed at Cartesian fraction " + std::to_string(f) + " (" +
         std::to_string(f * dist) + " m of " + std::to_string(dist) +
         " m reached) - target likely out of reach or near a singularity from "

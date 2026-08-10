@@ -52,11 +52,14 @@ public:
     JointPath & path, std::string & error);
 
   // Dense straight line of the tip in Cartesian space, IK per waypoint.
+  // position_only=true tracks only the tip position (orientation left free),
+  // which extends reach when a redundant/constrained arm cannot hold the full
+  // pose along the whole segment.
   static bool cartesianPath(
     const GroupKinematics & kin, const std::vector<double> & start,
     const Eigen::Isometry3d & start_pose, const Eigen::Isometry3d & goal_pose,
     const MotionLimits & motion, const StateValidator & valid,
-    JointPath & path, std::string & error);
+    JointPath & path, std::string & error, bool position_only = false);
 
   // Round the corners of a concatenated path at the given junction indices,
   // each over ~radii[k] (rad) on either side. Re-validates each modified window
