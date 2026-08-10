@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <random>
+#include <string>
 
 #include <Eigen/Dense>
 
@@ -240,30 +242,48 @@ bool GroupKinematics::ikLocked(
   const auto & solver = position_only ? reduced_ik_pos_ : reduced_ik_;
 
   // Solve on the reduced chain; locked joints keep their seed value.
-  auto attempt = [&](const std::vector<double> & start, std::vector<double> & out) -> bool {
+  auto attempt = [&](const std::vector<double> & start, std::vector<double> & out,
+      std::string & why) -> bool {
       KDL::JntArray q_init(nr), q_out(nr);
       for (unsigned int i = 0; i < nr; ++i) {q_init(i) = start[reduced_to_group_[i]];}
-      if (solver->CartToJnt(q_init, goal_kdl, q_out) < 0) {return false;}
+      const int rc = solver->CartToJnt(q_init, goal_kdl, q_out);
+      if (rc < 0) {
+        why = "LMA did not converge (rc=" + std::to_string(rc) +
+          ", pose unreachable or singular)";
+        return false;
+      }
       out = seed;   // locked joints stay put
       for (unsigned int i = 0; i < nr; ++i) {
         const int gi = reduced_to_group_[i];
         if (q_out(i) < reduced_limits_[i].first - 1e-6 ||
           q_out(i) > reduced_limits_[i].second + 1e-6)
         {
+          why = "free joint #" + std::to_string(i) + " out of limits (" +
+            std::to_string(q_out(i)) + " not in [" +
+            std::to_string(reduced_limits_[i].first) + ", " +
+            std::to_string(reduced_limits_[i].second) + "])";
           return false;
         }
-        if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {return false;}
+        if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
+          why = "free joint #" + std::to_string(i) + " jumped " +
+            std::to_string(std::abs(q_out(i) - seed[gi])) + " rad from the previous waypoint";
+          return false;
+        }
         out[gi] = q_out(i);
       }
-      if (accept && !accept(out)) {return false;}
+      if (accept && !accept(out)) {why = "solution in collision"; return false;}
       return true;
     };
 
-  if (attempt(seed, q)) {return true;}
+  std::string why;
+  if (attempt(seed, q, why)) {return true;}
 
   // Path following (limit_jump) must stay continuous with the previous waypoint,
   // so it never jumps to a far restart. Only one-shot goals explore.
-  if (limit_jump) {return false;}
+  if (limit_jump) {
+    std::fprintf(stderr, "[kinematics] locked IK failed (path): %s\n", why.c_str());
+    return false;
+  }
 
   static thread_local std::mt19937 rng(1618033u);
   std::vector<double> start = seed;
@@ -279,8 +299,9 @@ bool GroupKinematics::ikLocked(
         start[gi] = seed[gi] + uni(rng);
       }
     }
-    if (attempt(start, q)) {return true;}
+    if (attempt(start, q, why)) {return true;}
   }
+  std::fprintf(stderr, "[kinematics] locked IK failed (goal): %s\n", why.c_str());
   return false;
 }
 
