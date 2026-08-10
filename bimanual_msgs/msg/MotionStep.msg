@@ -30,6 +30,13 @@ float64[] joint_target
 # the full pose (position + orientation).
 bool free_orientation
 
+# TYPE_HOLD_TIP: how to interpret joint_target for the driven_joints.
+#   false (default) -> relative deltas [rad] added to their current value.
+#   true            -> absolute target positions [rad].
+# In both cases the driven joints are ramped from their current value to the
+# target while the compensating subgroup holds the tip fixed.
+bool driven_absolute
+
 # --- TYPE_CARTESIAN --------------------------------------------------------
 # Target pose of the tip.
 #   * If reference_frame is set, pose_target is expressed in that TF frame

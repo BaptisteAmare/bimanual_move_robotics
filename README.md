@@ -325,10 +325,18 @@ ros2 action send_goal -f /bimanual_manipulation_server/move bimanual_msgs/action
 ### `5` Hold-tip (drive a joint, keep the hand fixed)
 For a group that declares `driven_joints` and a `compensating_subgroup` (e.g.
 `waist_right_arm`: waist joint + right arm, `compensating_subgroup: right_arm`).
-`joint_target` gives the **deltas** [rad] for the driven joints; they are stepped
-through while the subgroup is IK-solved every step to keep `tip_link` fixed in
-`base_link` — **turn the waist while the hand stays on its object**, the arm
+`joint_target` gives the target for the driven joints; they are ramped from their
+current value while the subgroup is IK-solved every step to keep `tip_link` fixed
+in `base_link` — **turn the waist while the hand stays on its object**, the arm
 absorbing the motion. Errors clearly if the tip becomes unreachable or collides.
+
+* **Several driven joints** are supported — list them all in `driven_joints`
+  (each must be upstream of the subgroup's `base_link`) and give one value each
+  in `joint_target`. The whole set is ramped together while the tip is held.
+* **Relative vs absolute** — `driven_absolute:false` (default) treats
+  `joint_target` as deltas from the current value; `driven_absolute:true` treats
+  them as absolute joint positions. In a sequence use `deltas: [...]` or
+  `targets: [...]` (targets implies absolute).
 
 * `base_link` = the (fixed) frame the hand is held in; it **must be upstream of
   the driven joints** (use the robot root to hold the hand fixed in the world).
@@ -346,6 +354,11 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
 # same but hold position only (bigger reachable range)
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 5, group: waist_right_arm, joint_target: [0.5], free_orientation: true}}"
+
+# several driven joints to ABSOLUTE positions, holding the tip fixed
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 5, group: torso_right_arm, driven_absolute: true,
+           joint_target: [0.2, 0.4, -0.3, 0.0, 0.5]}}"
 ```
 
 ---

@@ -181,14 +181,19 @@ MotionStep parseStep(const YAML::Node & s)
     step.gripper_position = s["position"].as<double>(0.0);
   } else if (type == "hold_tip") {
     step.type = MotionStep::TYPE_HOLD_TIP;
-    step.joint_target = asDoubleList(s["joint_target"]);
-    if (step.joint_target.empty()) {
-      step.joint_target = asDoubleList(s["deltas"]);
-    }
-    if (step.joint_target.empty()) {
-      step.joint_target = asDoubleList(s["values"]);
-    }
     step.free_orientation = s["free_orientation"].as<bool>(false);
+    // "targets" -> absolute driven-joint positions; else relative deltas
+    // (accepted under "deltas", "joint_target" or "values").
+    auto targets = asDoubleList(s["targets"]);
+    if (!targets.empty()) {
+      step.joint_target = targets;
+      step.driven_absolute = true;
+    } else {
+      step.joint_target = asDoubleList(s["deltas"]);
+      if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["joint_target"]);}
+      if (step.joint_target.empty()) {step.joint_target = asDoubleList(s["values"]);}
+      step.driven_absolute = s["absolute"].as<bool>(false);
+    }
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
     step.reference_frame = s["reference_frame"].as<std::string>("");

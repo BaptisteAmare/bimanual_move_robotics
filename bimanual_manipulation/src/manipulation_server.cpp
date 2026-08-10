@@ -563,9 +563,15 @@ bool ManipulationServer::computeStepPath(
       }
     }
 
-    // Steps sized by the largest driven rotation.
+    // Effective per-driven-joint delta from current to the requested value
+    // (absolute target -> target - current; else the given relative delta).
+    std::vector<double> ddelta(g.driven_joints.size());
     double max_delta = 0.0;
-    for (double d : step.joint_target) {max_delta = std::max(max_delta, std::abs(d));}
+    for (size_t i = 0; i < g.driven_joints.size(); ++i) {
+      ddelta[i] = step.driven_absolute ?
+        (step.joint_target[i] - start[driven_idx[i]]) : step.joint_target[i];
+      max_delta = std::max(max_delta, std::abs(ddelta[i]));
+    }
     const int M = std::max(1, static_cast<int>(std::ceil(max_delta / 0.02)));
 
     path.clear();
@@ -573,11 +579,11 @@ bool ManipulationServer::computeStepPath(
     for (int s = 1; s <= M; ++s) {
       const double f = static_cast<double>(s) / M;
       std::vector<double> full = start;
-      // Apply the driven-joint deltas at this fraction.
+      // Ramp every driven joint from its current value toward the target.
       std::map<std::string, double> jvs = base_state;
       for (size_t i = 0; i < g.joints.size(); ++i) {jvs[g.joints[i]] = full[i];}
       for (size_t i = 0; i < g.driven_joints.size(); ++i) {
-        const double v = start[driven_idx[i]] + step.joint_target[i] * f;
+        const double v = start[driven_idx[i]] + ddelta[i] * f;
         full[driven_idx[i]] = v;
         jvs[g.driven_joints[i]] = v;
       }
