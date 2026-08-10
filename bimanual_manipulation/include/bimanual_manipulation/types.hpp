@@ -39,6 +39,11 @@ struct GroupConfig
   // their current value during Cartesian IK (e.g. keep the waist pitch fixed
   // while the yaw + arm move). They still get commanded (to hold position).
   std::vector<std::string> locked_joints;
+  // "Assist" joints (e.g. a waist yaw) that should stay at their current value
+  // when the rest of the chain can reach the target on its own, and only move
+  // when it cannot — so the extra DoF adds reach without disturbing the
+  // well-behaved primary solution.
+  std::vector<std::string> assist_joints;
   // Cartesian-capable subgroups (e.g. [left_arm, right_arm]) whose tips move
   // together under one shared translation — dual-arm coordinated Cartesian.
   std::vector<std::string> cartesian_subgroups;

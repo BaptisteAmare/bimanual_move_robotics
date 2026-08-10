@@ -57,33 +57,44 @@ public:
   const std::vector<std::pair<double, double>> & limits() const {return limits_;}
 
 private:
-  // IK for groups with locked_joints: KDL's LMA cannot hold a mid-chain joint
-  // fixed, so we run it on a REDUCED chain where each locked joint is baked in
-  // as a fixed segment at its current value (from the seed). Same robust solver
-  // as the unlocked path, honoring position_only / limit_jump / accept.
+  // A KDL chain with some joints "baked in" as fixed segments at a given value,
+  // plus LMA solvers for the remaining free joints. KDL's LMA cannot pin a
+  // mid-chain joint, so we bake locked (and optionally assist) joints instead.
+  struct ReducedSolver
+  {
+    KDL::Chain chain;
+    std::shared_ptr<KDL::ChainFkSolverPos_recursive> fk;
+    std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik;
+    std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_pos;   // position-only
+    std::vector<int> to_group;                            // free joint -> group index
+    std::vector<std::pair<double, double>> limits;        // per free joint
+    std::vector<double> baked_vals;                       // cache key (baked values)
+  };
+
+  // IK for groups with locked (and/or assist) joints, run on a reduced chain.
+  // Tries the primary solve first (assist joints held), then frees them.
   bool ikLocked(
     const Eigen::Isometry3d & goal, const std::vector<double> & seed,
     std::vector<double> & q, bool limit_jump, bool position_only,
     const std::function<bool(const std::vector<double> &)> & accept) const;
-  // (Re)build the reduced chain + solvers when the locked joint values change.
-  void ensureReduced(const std::vector<double> & seed) const;
+  // (Re)build a reduced solver for the given fixed-joint mask when its baked
+  // values change.
+  void ensureSolver(
+    const std::vector<char> & fixed_mask, const std::vector<double> & seed,
+    ReducedSolver & rs) const;
 
   KDL::Chain chain_;
   std::shared_ptr<KDL::ChainFkSolverPos_recursive> fk_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_;
   std::shared_ptr<KDL::ChainIkSolverPos_LMA> ik_pos_;  // position-only (orientation free)
   std::vector<char> locked_mask_;   // per chain joint: 1 if held fixed
+  std::vector<char> assist_mask_;   // per chain joint: 1 if "assist" (held first)
   bool has_locked_ = false;
+  bool has_assist_ = false;
   std::vector<std::pair<double, double>> limits_;  // (lower, upper) per chain joint
 
-  // Reduced chain (locked joints baked as fixed), rebuilt when they move.
-  mutable KDL::Chain reduced_chain_;
-  mutable std::shared_ptr<KDL::ChainFkSolverPos_recursive> reduced_fk_;
-  mutable std::shared_ptr<KDL::ChainIkSolverPos_LMA> reduced_ik_;
-  mutable std::shared_ptr<KDL::ChainIkSolverPos_LMA> reduced_ik_pos_;
-  mutable std::vector<int> reduced_to_group_;   // reduced free joint -> group index
-  mutable std::vector<std::pair<double, double>> reduced_limits_;
-  mutable std::vector<double> reduced_locked_vals_;  // baked locked values (cache key)
+  mutable ReducedSolver full_;      // locked joints baked (assist free)
+  mutable ReducedSolver primary_;   // locked + assist joints baked (arm only)
 
   // q vectors handed to / returned by this class are ordered like the group's
   // "joints" list; chain_to_group_[i] is the position, in that list, of the

@@ -191,9 +191,22 @@ dropped from the chain). Locked joints are still commanded — to hold position.
       - {name: /waist_controller/follow_joint_trajectory, joints: [waist_yaw_joint, waist_pitch_joint]}
 ```
 
-Under the hood, groups with `locked_joints` use a damped-least-squares IK that
-zeroes the locked joints' Jacobian columns (KDL's default solver cannot hold a
-mid-chain joint); it still honors `free_orientation` and collision-aware IK.
+**`assist_joints`** — free joints (e.g. a waist *yaw*) that should stay put when
+the rest of the chain can reach the target on its own, and only move when it
+cannot. Without this, the extra DoF makes the IK pick a worse arm branch and lose
+reach; with it, the arm does the work (matching the arm-only group) and the yaw
+only kicks in for targets the arm can't reach alone:
+
+```yaml
+    joints: [waist_yaw_joint, waist_pitch_joint, R_shoulder_pitch_joint, ... ]
+    locked_joints: [waist_pitch_joint]   # never moves
+    assist_joints: [waist_yaw_joint]     # moves only when the arm can't reach
+```
+
+Under the hood, groups with `locked_joints`/`assist_joints` run KDL's LMA on a
+**reduced chain** (the held joints baked in as fixed segments at their current
+value); it tries the arm-only solve first, then frees the assist joints, and
+honors `free_orientation` and collision-aware IK.
 
 ---
 

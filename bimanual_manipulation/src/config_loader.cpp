@@ -65,6 +65,7 @@ bool parseGroups(const YAML::Node & root, ManipulationConfig & out, std::string 
     g.cartesian_step = n["cartesian_step"].as<double>(0.005);
     g.cartesian_subgroups = asStringList(n["cartesian_subgroups"]);
     g.locked_joints = asStringList(n["locked_joints"]);
+    g.assist_joints = asStringList(n["assist_joints"]);
     g.driven_joints = asStringList(n["driven_joints"]);
     g.compensating_subgroup = n["compensating_subgroup"].as<std::string>("");
     g.default_velocity_scaling =

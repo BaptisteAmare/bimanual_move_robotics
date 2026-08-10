@@ -63,6 +63,12 @@ bool GroupKinematics::init(
     locked_mask_.push_back(locked ? 1 : 0);
     if (locked) {has_locked_ = true;}
 
+    const bool assist =
+      std::find(cfg.assist_joints.begin(), cfg.assist_joints.end(), jn) !=
+      cfg.assist_joints.end();
+    assist_mask_.push_back(assist ? 1 : 0);
+    if (assist) {has_assist_ = true;}
+
     auto uj = model.getJoint(jn);
     double lower = -std::numeric_limits<double>::infinity();
     double upper = std::numeric_limits<double>::infinity();
@@ -114,7 +120,7 @@ bool GroupKinematics::ik(
   if (seed.size() != group_dof_) {
     return false;
   }
-  if (has_locked_) {
+  if (has_locked_ || has_assist_) {
     return ikLocked(goal, seed, q, limit_jump, position_only, accept);
   }
   const unsigned int n = chain_.getNrOfJoints();
@@ -182,52 +188,54 @@ bool GroupKinematics::ik(
   return false;
 }
 
-void GroupKinematics::ensureReduced(const std::vector<double> & seed) const
+void GroupKinematics::ensureSolver(
+  const std::vector<char> & fixed_mask, const std::vector<double> & seed,
+  ReducedSolver & rs) const
 {
-  // Current locked values (group order), used as the cache key.
-  std::vector<double> lv;
-  for (size_t i = 0; i < locked_mask_.size(); ++i) {
-    if (locked_mask_[i]) {lv.push_back(seed[chain_to_group_[i]]);}
+  // Baked values (group order) for the currently-fixed joints -> cache key.
+  std::vector<double> bv;
+  for (size_t i = 0; i < fixed_mask.size(); ++i) {
+    if (fixed_mask[i]) {bv.push_back(seed[chain_to_group_[i]]);}
   }
-  if (reduced_ik_ && lv.size() == reduced_locked_vals_.size()) {
+  if (rs.ik && bv.size() == rs.baked_vals.size()) {
     bool same = true;
-    for (size_t k = 0; k < lv.size(); ++k) {
-      if (std::abs(lv[k] - reduced_locked_vals_[k]) > 1e-9) {same = false; break;}
+    for (size_t k = 0; k < bv.size(); ++k) {
+      if (std::abs(bv[k] - rs.baked_vals[k]) > 1e-9) {same = false; break;}
     }
     if (same) {return;}
   }
 
-  // Rebuild: bake each locked joint into a fixed segment at its current value.
-  reduced_chain_ = KDL::Chain();
-  reduced_to_group_.clear();
-  reduced_limits_.clear();
+  // Rebuild: bake each fixed joint into a fixed segment at its current value.
+  rs.chain = KDL::Chain();
+  rs.to_group.clear();
+  rs.limits.clear();
   unsigned int aj = 0;   // actuated-joint index in the full chain
   for (unsigned int s = 0; s < chain_.getNrOfSegments(); ++s) {
     const KDL::Segment & seg = chain_.getSegment(s);
     const KDL::Joint & j = seg.getJoint();
     if (j.getType() == KDL::Joint::None) {
-      reduced_chain_.addSegment(seg);   // already fixed
+      rs.chain.addSegment(seg);   // already fixed
       continue;
     }
-    if (locked_mask_[aj]) {
+    if (fixed_mask[aj]) {
       const double v = seed[chain_to_group_[aj]];
       const KDL::Frame baked = j.pose(v) * seg.getFrameToTip();
-      reduced_chain_.addSegment(
+      rs.chain.addSegment(
         KDL::Segment(seg.getName(), KDL::Joint(j.getName(), KDL::Joint::None), baked));
     } else {
-      reduced_chain_.addSegment(seg);
-      reduced_to_group_.push_back(chain_to_group_[aj]);
-      reduced_limits_.push_back(limits_[aj]);
+      rs.chain.addSegment(seg);
+      rs.to_group.push_back(chain_to_group_[aj]);
+      rs.limits.push_back(limits_[aj]);
     }
     ++aj;
   }
 
-  reduced_fk_ = std::make_shared<KDL::ChainFkSolverPos_recursive>(reduced_chain_);
-  reduced_ik_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(reduced_chain_, 1e-5, 500);
+  rs.fk = std::make_shared<KDL::ChainFkSolverPos_recursive>(rs.chain);
+  rs.ik = std::make_shared<KDL::ChainIkSolverPos_LMA>(rs.chain, 1e-5, 500);
   Eigen::Matrix<double, 6, 1> weights;
   weights << 1.0, 1.0, 1.0, 0.0, 0.0, 0.0;
-  reduced_ik_pos_ = std::make_shared<KDL::ChainIkSolverPos_LMA>(reduced_chain_, weights, 1e-5, 500);
-  reduced_locked_vals_ = lv;
+  rs.ik_pos = std::make_shared<KDL::ChainIkSolverPos_LMA>(rs.chain, weights, 1e-5, 500);
+  rs.baked_vals = bv;
 }
 
 bool GroupKinematics::ikLocked(
@@ -235,30 +243,29 @@ bool GroupKinematics::ikLocked(
   std::vector<double> & q, bool limit_jump, bool position_only,
   const std::function<bool(const std::vector<double> &)> & accept) const
 {
-  ensureReduced(seed);
-  const unsigned int nr = reduced_chain_.getNrOfJoints();   // free joints only
-  if (nr == 0) {return false;}
   const KDL::Frame goal_kdl = eigenToKdl(goal);
-  const auto & solver = position_only ? reduced_ik_pos_ : reduced_ik_;
 
-  // Solve on the reduced chain; locked joints keep their seed value.
-  auto attempt = [&](const std::vector<double> & start, std::vector<double> & out,
-      std::string & why) -> bool {
+  // Solve on a reduced chain (fixed joints held at their seed value).
+  auto attempt = [&](const ReducedSolver & rs, const std::vector<double> & start,
+      std::vector<double> & out, std::string & why) -> bool {
+      const unsigned int nr = rs.chain.getNrOfJoints();
+      if (nr == 0) {why = "no free joints"; return false;}
+      const auto & solver = position_only ? rs.ik_pos : rs.ik;
       KDL::JntArray q_init(nr), q_out(nr);
-      for (unsigned int i = 0; i < nr; ++i) {q_init(i) = start[reduced_to_group_[i]];}
+      for (unsigned int i = 0; i < nr; ++i) {q_init(i) = start[rs.to_group[i]];}
       const int rc = solver->CartToJnt(q_init, goal_kdl, q_out);
       if (rc < 0) {
         why = "LMA did not converge (rc=" + std::to_string(rc) +
           ", pose unreachable or singular)";
         return false;
       }
-      // KDL's LMA ignores joint limits; clamp the result and re-check that the
-      // pose is still reached (tiny overshoots are fixed, true violations fail).
+      // KDL's LMA ignores joint limits; clamp and re-check the pose is reached
+      // (tiny overshoots are absorbed, true violations fail).
       for (unsigned int i = 0; i < nr; ++i) {
-        q_out(i) = std::clamp(q_out(i), reduced_limits_[i].first, reduced_limits_[i].second);
+        q_out(i) = std::clamp(q_out(i), rs.limits[i].first, rs.limits[i].second);
       }
       KDL::Frame f;
-      reduced_fk_->JntToCart(q_out, f);
+      rs.fk->JntToCart(q_out, f);
       const KDL::Twist e = KDL::diff(f, goal_kdl);
       const double perr = e.vel.Norm();
       const double rerr = position_only ? 0.0 : e.rot.Norm();
@@ -267,12 +274,12 @@ bool GroupKinematics::ikLocked(
           " m, " + std::to_string(rerr) + " rad)";
         return false;
       }
-      out = seed;   // locked joints stay put
+      out = seed;   // fixed joints stay put
       for (unsigned int i = 0; i < nr; ++i) {
-        const int gi = reduced_to_group_[i];
+        const int gi = rs.to_group[i];
         if (limit_jump && std::abs(q_out(i) - seed[gi]) > kMaxJointJump) {
-          why = "free joint #" + std::to_string(i) + " jumped " +
-            std::to_string(std::abs(q_out(i) - seed[gi])) + " rad from the previous waypoint";
+          why = "free joint jumped " + std::to_string(std::abs(q_out(i) - seed[gi])) +
+            " rad from the previous waypoint";
           return false;
         }
         out[gi] = q_out(i);
@@ -282,7 +289,19 @@ bool GroupKinematics::ikLocked(
     };
 
   std::string why;
-  if (attempt(seed, q, why)) {return true;}
+
+  // 1) Primary: hold the assist joints too, so the arm alone does the work
+  //    whenever it can (this matches the plain arm's well-behaved solution).
+  if (has_assist_) {
+    std::vector<char> fixed(locked_mask_.size(), 0);
+    for (size_t i = 0; i < fixed.size(); ++i) {fixed[i] = locked_mask_[i] || assist_mask_[i];}
+    ensureSolver(fixed, seed, primary_);
+    if (attempt(primary_, seed, q, why)) {return true;}
+  }
+
+  // 2) Full: free the assist joints for the extra reach the arm alone lacked.
+  ensureSolver(locked_mask_, seed, full_);
+  if (attempt(full_, seed, q, why)) {return true;}
 
   // Path following (limit_jump) must stay continuous with the previous waypoint,
   // so it never jumps to a far restart. Only one-shot goals explore.
@@ -292,11 +311,12 @@ bool GroupKinematics::ikLocked(
   }
 
   static thread_local std::mt19937 rng(1618033u);
+  const unsigned int nr = full_.chain.getNrOfJoints();
   std::vector<double> start = seed;
   for (int k = 0; k < 30; ++k) {
     for (unsigned int i = 0; i < nr; ++i) {
-      const int gi = reduced_to_group_[i];
-      double lo = reduced_limits_[i].first, hi = reduced_limits_[i].second;
+      const int gi = full_.to_group[i];
+      const double lo = full_.limits[i].first, hi = full_.limits[i].second;
       if (std::isfinite(lo) && std::isfinite(hi)) {
         std::uniform_real_distribution<double> uni(lo, hi);
         start[gi] = uni(rng);
@@ -305,7 +325,7 @@ bool GroupKinematics::ikLocked(
         start[gi] = seed[gi] + uni(rng);
       }
     }
-    if (attempt(start, q, why)) {return true;}
+    if (attempt(full_, start, q, why)) {return true;}
   }
   std::fprintf(stderr, "[kinematics] locked IK failed (goal): %s\n", why.c_str());
   return false;
