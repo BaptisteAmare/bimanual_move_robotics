@@ -139,8 +139,11 @@ MotionStep parseStep(const YAML::Node & s)
   MotionStep step;
   const std::string type = s["type"].as<std::string>("named");
   step.group = s["group"].as<std::string>("");
+  // Shared, type-agnostic fields (parsed for every step type).
   step.velocity_scaling = s["velocity_scaling"].as<double>(0.0);
   step.acceleration_scaling = s["acceleration_scaling"].as<double>(0.0);
+  step.blend_radius = s["blend_radius"].as<double>(0.0);
+  step.free_orientation = s["free_orientation"].as<bool>(false);
 
   if (type == "named") {
     step.type = MotionStep::TYPE_NAMED;
@@ -181,7 +184,6 @@ MotionStep parseStep(const YAML::Node & s)
     step.gripper_position = s["position"].as<double>(0.0);
   } else if (type == "hold_tip") {
     step.type = MotionStep::TYPE_HOLD_TIP;
-    step.free_orientation = s["free_orientation"].as<bool>(false);
     // "targets" -> absolute driven-joint positions; else relative deltas
     // (accepted under "deltas", "joint_target" or "values").
     auto targets = asDoubleList(s["targets"]);
