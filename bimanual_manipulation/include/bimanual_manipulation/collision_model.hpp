@@ -63,11 +63,6 @@ public:
   bool addObject(
     const std::string & id, const shape_msgs::msg::SolidPrimitive & primitive,
     const Eigen::Isometry3d & pose, std::string & error);
-  // Object rigidly attached to a link; pose expressed in that link's frame.
-  bool addAttachedObject(
-    const std::string & id, const shape_msgs::msg::SolidPrimitive & primitive,
-    const std::string & link, const Eigen::Isometry3d & pose_in_link,
-    std::string & error);
 
   // Mesh objects. The resource (package:// or file://) is loaded and, exactly
   // like the robot's own meshes, decimated (mesh mode) or reduced to a sphere
@@ -76,9 +71,23 @@ public:
   bool addMeshObject(
     const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
     const Eigen::Isometry3d & pose, std::string & error);
-  bool addAttachedMeshObject(
-    const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
-    const std::string & link, const Eigen::Isometry3d & pose_in_link, std::string & error);
+
+  // Attach an EXISTING world object to `link`, keeping it exactly where it is
+  // now (geometry preserved). The object then rides with the link. Collisions
+  // between it and: the attach link + its neighbours, every link named in
+  // `touch_links`, and every link it currently touches (the grasping hands) are
+  // allowed, so a grasped object does not trip self-collision. joint_values is
+  // the current robot state (to locate the object and detect the contacts).
+  bool attachExisting(
+    const std::string & id, const std::string & link,
+    const std::map<std::string, double> & joint_values,
+    const std::vector<std::string> & touch_links, std::string & error);
+
+  // Mark links as allowed to touch a (free or attached) object, e.g. the
+  // gripper links approaching an object to be grasped. Names not in the URDF
+  // are ignored.
+  bool setTouchLinks(
+    const std::string & id, const std::vector<std::string> & touch_links, std::string & error);
 
   bool removeObject(const std::string & id);
   void clearObjects();
@@ -163,6 +172,10 @@ private:
     std::vector<std::pair<Eigen::Vector3d, double>> mesh_spheres;
     Eigen::Vector3d mesh_bound_center = Eigen::Vector3d::Zero();  // broad-phase
     double mesh_bound_radius = 0.0;
+
+    // Link nodes this object is allowed to touch without it counting as a
+    // collision (attach neighbours, explicit touch_links, grasp contacts).
+    std::set<int> allowed_nodes;
   };
 
   std::shared_ptr<fcl::CollisionGeometryd> makeGeometry(
@@ -173,6 +186,12 @@ private:
   bool buildMeshObject(
     const std::string & resource, const Eigen::Vector3d & scale,
     WorldObject & wo, std::string & error) const;
+
+  // True when object `wo` (already placed at obj_world) is within `thr` of the
+  // robot link `node` at link transforms `tf` — used to find the grasp contacts.
+  bool objectTouchesNode(
+    const WorldObject & wo, const Eigen::Isometry3d & obj_world,
+    const std::vector<Eigen::Isometry3d> & tf, int node, double thr) const;
 
   void computeLinkTransforms(
     const std::map<std::string, double> & joint_values,

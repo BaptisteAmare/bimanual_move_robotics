@@ -212,7 +212,13 @@ MotionStep parseStep(const YAML::Node & s)
     step.collision_op = s["op"].as<std::string>("");
     step.collision_id = s["id"].as<std::string>("");
     step.collision_attach_link = s["attach_link"].as<std::string>("");
+    step.reference_frame = s["reference_frame"].as<std::string>("");
     step.collision_mesh = s["mesh"].as<std::string>("");
+    if (s["touch_links"]) {
+      for (const auto & tl : s["touch_links"]) {
+        step.collision_touch_links.push_back(tl.as<std::string>());
+      }
+    }
     auto scale = asDoubleList(s["scale"]);  // optional [sx, sy, sz]
     if (scale.size() == 3) {
       step.collision_mesh_scale.x = scale[0];

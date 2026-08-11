@@ -754,14 +754,7 @@ bool CollisionModel::checkStateMesh(
     for (size_t i = 0; i < shape_objs_.size(); ++i) {
       const int sn = shapes_[i].node;
       if (active_joints && !active[sn]) {continue;}  // static link, unchanged
-      // Skip the link the object is attached to and its direct parent.
-      if (wo.attached_node >= 0) {
-        if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
-          nodes_[wo.attached_node].parent == sn)
-        {
-          continue;
-        }
-      }
+      if (wo.allowed_nodes.count(sn)) {continue;}    // grasp / touch links
       if (tooClose(wobj, shape_objs_[i].get())) {return false;}
     }
   }
@@ -854,10 +847,7 @@ bool CollisionModel::checkStateSpheres(
       for (size_t i = 0; i < spheres_.size(); ++i) {
         const int sn = spheres_[i].node;
         if (active_joints && !active[sn]) {continue;}
-        if (wo.attached_node >= 0) {
-          if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
-            nodes_[wo.attached_node].parent == sn) {continue;}
-        }
+        if (wo.allowed_nodes.count(sn)) {continue;}
         if ((centers[i] - bc).norm() >
           spheres_[i].radius + wo.mesh_bound_radius + margin) {continue;}   // broad-phase
         for (size_t k = 0; k < ocs.size(); ++k) {
@@ -872,13 +862,7 @@ bool CollisionModel::checkStateSpheres(
     for (size_t i = 0; i < spheres_.size(); ++i) {
       const int sn = spheres_[i].node;
       if (active_joints && !active[sn]) {continue;}
-      if (wo.attached_node >= 0) {
-        if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
-          nodes_[wo.attached_node].parent == sn)
-        {
-          continue;
-        }
-      }
+      if (wo.allowed_nodes.count(sn)) {continue;}
       const double d = pointToPrimitive(obj_inv * centers[i], wo.primitive);
       if (d < spheres_[i].radius + margin) {return false;}
     }
@@ -946,6 +930,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
         for (size_t k = 0; k < wo.mesh_spheres.size(); ++k) {ocs[k] = obj_tf * wo.mesh_spheres[k].first;}
         for (size_t i = 0; i < spheres_.size(); ++i) {
           if (active_joints && !active[spheres_[i].node]) {continue;}
+          if (wo.allowed_nodes.count(spheres_[i].node)) {continue;}
           bool hit = false;
           for (size_t k = 0; k < ocs.size() && !hit; ++k) {
             hit = (centers[i] - ocs[k]).norm() <
@@ -961,6 +946,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
       const Eigen::Isometry3d obj_inv = obj_tf.inverse();
       for (size_t i = 0; i < spheres_.size(); ++i) {
         if (active_joints && !active[spheres_[i].node]) {continue;}
+        if (wo.allowed_nodes.count(spheres_[i].node)) {continue;}
         if (pointToPrimitive(obj_inv * centers[i], wo.primitive) < spheres_[i].radius + margin) {
           out.push_back("object '" + wo.id + "' <-> " + nodes_[spheres_[i].node].name);
           if (out.size() >= kMax) {return out;}
@@ -1009,6 +995,7 @@ std::vector<std::string> CollisionModel::describeCollisions(
     }
     for (size_t i = 0; i < shape_objs_.size(); ++i) {
       if (active_joints && !active[shapes_[i].node]) {continue;}
+      if (wo.allowed_nodes.count(shapes_[i].node)) {continue;}
       cres.clear();
       fcl::collide(wobj, shape_objs_[i].get(), creq, cres);
       if (cres.isCollision()) {
@@ -1043,32 +1030,113 @@ bool CollisionModel::addObject(
   return true;
 }
 
-bool CollisionModel::addAttachedObject(
-  const std::string & id, const shape_msgs::msg::SolidPrimitive & primitive,
-  const std::string & link, const Eigen::Isometry3d & pose_in_link, std::string & error)
+bool CollisionModel::objectTouchesNode(
+  const WorldObject & wo, const Eigen::Isometry3d & obj_world,
+  const std::vector<Eigen::Isometry3d> & tf, int node, double thr) const
 {
-  auto it = node_index_.find(link);
-  if (it == node_index_.end()) {
+  if (sphere_mode_) {
+    const Eigen::Isometry3d obj_inv = obj_world.inverse();
+    for (int si : spheres_by_node_[node]) {
+      const Eigen::Vector3d c = tf[node] * spheres_[si].center;
+      const double rr = spheres_[si].radius;
+      if (wo.is_mesh) {
+        for (const auto & os : wo.mesh_spheres) {
+          if ((c - obj_world * os.first).norm() < rr + os.second + thr) {return true;}
+        }
+      } else if (pointToPrimitive(obj_inv * c, wo.primitive) < rr + thr) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (!wo.obj) {return false;}   // mesh mode: wo.obj already placed at obj_world
+  for (size_t i = 0; i < shapes_.size(); ++i) {
+    if (shapes_[i].node != node) {continue;}
+    fcl::CollisionObjectd link_obj(
+      shapes_[i].geom, Eigen::Isometry3d(tf[node] * shapes_[i].origin));
+    link_obj.computeAABB();
+    if (thr > 0.0) {
+      fcl::DistanceRequestd dq;
+      fcl::DistanceResultd dr;
+      fcl::distance(wo.obj.get(), &link_obj, dq, dr);
+      if (dr.min_distance < thr) {return true;}
+    } else {
+      fcl::CollisionRequestd cq;
+      fcl::CollisionResultd cr;
+      fcl::collide(wo.obj.get(), &link_obj, cq, cr);
+      if (cr.isCollision()) {return true;}
+    }
+  }
+  return false;
+}
+
+bool CollisionModel::attachExisting(
+  const std::string & id, const std::string & link,
+  const std::map<std::string, double> & joint_values,
+  const std::vector<std::string> & touch_links, std::string & error)
+{
+  auto ln = node_index_.find(link);
+  if (ln == node_index_.end()) {
     error = "unknown attach link '" + link + "'";
     return false;
   }
-  auto geom = makeGeometry(primitive);
-  if (!geom) {
-    error = "unsupported or malformed primitive for object '" + id + "'";
+  const int node = ln->second;
+  std::vector<Eigen::Isometry3d> tf;
+  computeLinkTransforms(joint_values, tf);
+
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  auto it = std::find_if(
+    world_.begin(), world_.end(), [&](const WorldObject & o) {return o.id == id;});
+  if (it == world_.end()) {
+    error = "collision object '" + id + "' not found (give a primitive/mesh to create it)";
     return false;
   }
-  std::lock_guard<std::mutex> lock(world_mutex_);
-  world_.erase(
-    std::remove_if(world_.begin(), world_.end(),
-    [&](const WorldObject & o) {return o.id == id;}), world_.end());
-  WorldObject wo;
-  wo.id = id;
-  wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, pose_in_link);
-  wo.pose = pose_in_link;
-  wo.attached_node = it->second;
-  wo.primitive = primitive;
+  WorldObject & wo = *it;
+
+  // Where the object sits in the world right now, then re-express it in `link`.
+  const Eigen::Isometry3d world =
+    (wo.attached_node >= 0) ? Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose;
+  wo.pose = tf[node].inverse() * world;
+  wo.attached_node = node;
   wo.attached_link = link;
-  world_.push_back(std::move(wo));
+  if (wo.obj) {wo.obj->setTransform(world); wo.obj->computeAABB();}
+
+  // Links allowed to touch it: the attach link, its parent and children, the
+  // explicit touch_links, and every link it currently overlaps (the hands
+  // gripping it). The generous threshold reliably catches the grasp contacts.
+  wo.allowed_nodes.clear();
+  wo.allowed_nodes.insert(node);
+  if (nodes_[node].parent >= 0) {wo.allowed_nodes.insert(nodes_[node].parent);}
+  for (size_t i = 0; i < nodes_.size(); ++i) {
+    if (nodes_[i].parent == node) {wo.allowed_nodes.insert(static_cast<int>(i));}
+  }
+  for (const auto & tl : touch_links) {
+    auto t = node_index_.find(tl);
+    if (t != node_index_.end()) {wo.allowed_nodes.insert(t->second);}
+  }
+  const double thr = std::max(settings_.margin, 0.005) + 0.005;
+  for (size_t i = 0; i < nodes_.size(); ++i) {
+    if (objectTouchesNode(wo, world, tf, static_cast<int>(i), thr)) {
+      wo.allowed_nodes.insert(static_cast<int>(i));
+    }
+  }
+  return true;
+}
+
+bool CollisionModel::setTouchLinks(
+  const std::string & id, const std::vector<std::string> & touch_links, std::string & error)
+{
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  auto it = std::find_if(
+    world_.begin(), world_.end(), [&](const WorldObject & o) {return o.id == id;});
+  if (it == world_.end()) {
+    error = "collision object '" + id + "' not found";
+    return false;
+  }
+  for (const auto & tl : touch_links) {
+    auto t = node_index_.find(tl);
+    if (t != node_index_.end()) {it->allowed_nodes.insert(t->second);}
+  }
   return true;
 }
 
@@ -1126,30 +1194,6 @@ bool CollisionModel::addMeshObject(
   wo.pose = pose;
   wo.attached_node = -1;
   if (wo.obj) {wo.obj->setTransform(pose); wo.obj->computeAABB();}
-  std::lock_guard<std::mutex> lock(world_mutex_);
-  world_.erase(
-    std::remove_if(world_.begin(), world_.end(),
-    [&](const WorldObject & o) {return o.id == id;}), world_.end());
-  world_.push_back(std::move(wo));
-  return true;
-}
-
-bool CollisionModel::addAttachedMeshObject(
-  const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
-  const std::string & link, const Eigen::Isometry3d & pose_in_link, std::string & error)
-{
-  auto it = node_index_.find(link);
-  if (it == node_index_.end()) {
-    error = "unknown attach link '" + link + "'";
-    return false;
-  }
-  WorldObject wo;
-  if (!buildMeshObject(resource, scale, wo, error)) {return false;}
-  wo.id = id;
-  wo.pose = pose_in_link;
-  wo.attached_node = it->second;
-  wo.attached_link = link;
-  if (wo.obj) {wo.obj->setTransform(pose_in_link); wo.obj->computeAABB();}
   std::lock_guard<std::mutex> lock(world_mutex_);
   world_.erase(
     std::remove_if(world_.begin(), world_.end(),

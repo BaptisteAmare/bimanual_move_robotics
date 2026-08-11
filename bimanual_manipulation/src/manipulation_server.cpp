@@ -222,6 +222,7 @@ bool ManipulationServer::initialize()
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
   joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
     "/joint_states", rclcpp::SensorDataQoS(),
@@ -885,6 +886,23 @@ bool ManipulationServer::executeFollow(
   return true;
 }
 
+bool ManipulationServer::lookupPlanningFrame(
+  const std::string & frame, Eigen::Isometry3d & out) const
+{
+  const std::string & root = collision_.rootFrame();
+  if (frame.empty() || frame == root) {
+    out = Eigen::Isometry3d::Identity();
+    return true;
+  }
+  try {
+    out = tf2::transformToEigen(
+      tf_buffer_->lookupTransform(root, frame, tf2::TimePointZero, tf2::durationFromSec(0.3)));
+    return true;
+  } catch (const tf2::TransformException &) {
+    return false;
+  }
+}
+
 bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::string & error)
 {
   const std::string & op = step.collision_op;
@@ -911,17 +929,46 @@ bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::stri
   const Eigen::Vector3d scale(
     step.collision_mesh_scale.x, step.collision_mesh_scale.y, step.collision_mesh_scale.z);
   const bool is_mesh = !step.collision_mesh.empty();
+  const bool has_geom = is_mesh || !step.collision_primitive.dimensions.empty();
+  const std::map<std::string, double> state = currentState();
   bool ok = true;
   if (op == "add") {
+    // Place in the planning root frame, or relative to a TF frame if given.
+    if (!step.reference_frame.empty()) {
+      Eigen::Isometry3d T;
+      if (lookupPlanningFrame(step.reference_frame, T)) {
+        pose = T * pose;
+      } else {
+        RCLCPP_WARN(
+          get_logger(), "collision add '%s': frame '%s' not found, using root frame",
+          step.collision_id.c_str(), step.reference_frame.c_str());
+      }
+    }
     ok = is_mesh ?
       collision_.addMeshObject(step.collision_id, step.collision_mesh, scale, pose, error) :
       collision_.addObject(step.collision_id, step.collision_primitive, pose, error);
+    if (ok && !step.collision_touch_links.empty()) {
+      collision_.setTouchLinks(step.collision_id, step.collision_touch_links, error);
+    }
   } else if (op == "attach") {
-    ok = is_mesh ?
-      collision_.addAttachedMeshObject(
-        step.collision_id, step.collision_mesh, scale, step.collision_attach_link, pose, error) :
-      collision_.addAttachedObject(
-        step.collision_id, step.collision_primitive, step.collision_attach_link, pose, error);
+    // If geometry is given, create the object first (pose in the attach link's
+    // frame); otherwise attach the EXISTING object where it currently sits.
+    if (has_geom) {
+      Eigen::Isometry3d link_tf;
+      if (!collision_.linkPose(step.collision_attach_link, state, link_tf)) {
+        error = "unknown attach link '" + step.collision_attach_link + "'";
+        return false;
+      }
+      const Eigen::Isometry3d world = link_tf * pose;
+      ok = is_mesh ?
+        collision_.addMeshObject(step.collision_id, step.collision_mesh, scale, world, error) :
+        collision_.addObject(step.collision_id, step.collision_primitive, world, error);
+    }
+    if (ok) {
+      ok = collision_.attachExisting(
+        step.collision_id, step.collision_attach_link, state,
+        step.collision_touch_links, error);
+    }
   } else if (op == "remove" || op == "detach") {
     ok = collision_.removeObject(step.collision_id);
     if (!ok) {error = "collision object '" + step.collision_id + "' not found";}
@@ -936,13 +983,17 @@ bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::stri
     return false;
   }
   if (ok) {
-    if (op == "add" || op == "attach") {
+    if (op == "add") {
       const Eigen::Vector3d t = pose.translation();
       const Eigen::Vector3d e = pose.linear().eulerAngles(2, 1, 0);  // yaw, pitch, roll
       RCLCPP_INFO(
-        get_logger(), "collision: %s '%s' at [%.3f %.3f %.3f] rpy [%.3f %.3f %.3f]%s",
-        op.c_str(), step.collision_id.c_str(), t.x(), t.y(), t.z(),
+        get_logger(), "collision: add '%s' at [%.3f %.3f %.3f] rpy [%.3f %.3f %.3f]%s",
+        step.collision_id.c_str(), t.x(), t.y(), t.z(),
         e.z(), e.y(), e.x(), is_mesh ? " (mesh)" : "");
+    } else if (op == "attach") {
+      RCLCPP_INFO(
+        get_logger(), "collision: attach '%s' -> %s",
+        step.collision_id.c_str(), step.collision_attach_link.c_str());
     } else if (step.collision_id.empty()) {
       RCLCPP_INFO(get_logger(), "collision: %s", op.c_str());
     } else {
@@ -1220,22 +1271,50 @@ void ManipulationServer::manageCollisionObject(
   std::shared_ptr<ManageCollisionObject::Response> res)
 {
   std::string err;
-  const Eigen::Isometry3d pose = poseMsgToEigen(req->pose.pose);
+  Eigen::Isometry3d pose = poseMsgToEigen(req->pose.pose);
   const Eigen::Vector3d scale(req->mesh_scale.x, req->mesh_scale.y, req->mesh_scale.z);
   const bool is_mesh = !req->mesh_resource.empty();
+  const bool has_geom = is_mesh || !req->primitive.dimensions.empty();
+  const std::map<std::string, double> state = currentState();
   switch (req->operation) {
-    case ManageCollisionObject::Request::ADD:
+    case ManageCollisionObject::Request::ADD: {
+      // pose.header.frame_id selects the reference frame (empty = root).
+      Eigen::Isometry3d T;
+      if (lookupPlanningFrame(req->pose.header.frame_id, T)) {
+        pose = T * pose;
+      } else {
+        RCLCPP_WARN(
+          get_logger(), "collision add '%s': frame '%s' not found, using root frame",
+          req->id.c_str(), req->pose.header.frame_id.c_str());
+      }
       res->success = is_mesh ?
         collision_.addMeshObject(req->id, req->mesh_resource, scale, pose, err) :
         collision_.addObject(req->id, req->primitive, pose, err);
+      if (res->success && !req->touch_links.empty()) {
+        collision_.setTouchLinks(req->id, req->touch_links, err);
+      }
       break;
-    case ManageCollisionObject::Request::ATTACH:
-      res->success = is_mesh ?
-        collision_.addAttachedMeshObject(
-          req->id, req->mesh_resource, scale, req->attach_link, pose, err) :
-        collision_.addAttachedObject(
-          req->id, req->primitive, req->attach_link, pose, err);
+    }
+    case ManageCollisionObject::Request::ATTACH: {
+      res->success = true;
+      if (has_geom) {  // create at the link-relative pose, then attach it
+        Eigen::Isometry3d link_tf;
+        if (!collision_.linkPose(req->attach_link, state, link_tf)) {
+          res->success = false;
+          err = "unknown attach link '" + req->attach_link + "'";
+        } else {
+          const Eigen::Isometry3d world = link_tf * pose;
+          res->success = is_mesh ?
+            collision_.addMeshObject(req->id, req->mesh_resource, scale, world, err) :
+            collision_.addObject(req->id, req->primitive, world, err);
+        }
+      }
+      if (res->success) {
+        res->success = collision_.attachExisting(
+          req->id, req->attach_link, state, req->touch_links, err);
+      }
       break;
+    }
     case ManageCollisionObject::Request::REMOVE:
     case ManageCollisionObject::Request::DETACH:
       res->success = collision_.removeObject(req->id);
@@ -1261,6 +1340,18 @@ void ManipulationServer::publishMarkers()
   using SP = shape_msgs::msg::SolidPrimitive;
 
   const auto objects = collision_.objects();
+
+  // Broadcast each object as a TF frame (named by its id), so a Cartesian /
+  // collision step can target it with reference_frame: <id>. Free objects hang
+  // off the planning root; attached ones off their link.
+  for (const auto & o : objects) {
+    geometry_msgs::msg::TransformStamped t = tf2::eigenToTransform(o.pose);
+    t.header.stamp = now();
+    t.header.frame_id = o.attached_link.empty() ? collision_.rootFrame() : o.attached_link;
+    t.child_frame_id = o.id;
+    tf_broadcaster_->sendTransform(t);
+  }
+
   visualization_msgs::msg::MarkerArray arr;
 
   Marker del;

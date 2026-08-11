@@ -122,6 +122,18 @@ geometry_msgs/Vector3 collision_mesh_scale
 
 # Object orientation. Use EITHER pose_target.orientation (a quaternion) OR
 # collision_rpy (roll, pitch, yaw in RADIANS) — much easier to write by hand.
-# collision_rpy is used whenever pose_target.orientation is left unset (a
-# zero/invalid quaternion); the default (0,0,0) is no rotation.
+# collision_rpy is used whenever it is non-zero (the ros2 CLI fills the
+# quaternion with w=1 by default, so a non-zero RPY is the explicit signal);
+# the default (0,0,0) means no rotation and falls back to the quaternion.
 geometry_msgs/Vector3 collision_rpy
+
+# add only: place the object relative to this TF frame (reuse `reference_frame`
+# above). Empty -> the planning root frame. Each collision object is itself
+# published as a TF frame named by its id, so you can also target it later with
+# reference_frame: <id> from a Cartesian step.
+
+# attach only: links allowed to touch the object without it counting as a
+# collision (the gripper links holding it). The links the object is already
+# touching when attached are detected and allowed automatically, so this is
+# usually only needed to pre-allow contact before the grasp.
+string[] collision_touch_links

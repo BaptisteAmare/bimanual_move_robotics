@@ -24,8 +24,14 @@ geometry_msgs/Vector3 mesh_scale
 # defaults to the planning frame.
 geometry_msgs/PoseStamped pose
 
-# Link to attach the object to (ATTACH only).
+# Link to attach the object to (ATTACH only). If no geometry is given, the
+# already-present object with this id is attached where it currently sits
+# (geometry preserved).
 string attach_link
+
+# ATTACH only: links allowed to touch the object (the gripper links). Links the
+# object already touches when attached are allowed automatically.
+string[] touch_links
 ---
 bool success
 string message

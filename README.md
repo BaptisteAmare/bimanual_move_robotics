@@ -385,11 +385,27 @@ of the robot. `collision_op` selects the action:
 
 | `op` | effect | fields used |
 |------|--------|-------------|
-| `add` | add a free world object at `pose_target` (planning root frame) | `id`, `primitive` **or** `mesh`, `position`, `orientation` |
-| `attach` | attach an object to a link; `pose_target` is in that link frame, and it rides with the link | `id`, `primitive` **or** `mesh`, `attach_link`, `position`, `orientation` |
+| `add` | add a free world object at `pose_target`, in the root frame or in `reference_frame` | `id`, `primitive` **or** `mesh`, `position`, `orientation`/`rpy`, `reference_frame`, `touch_links` |
+| `attach` | attach an object to a link; it then rides with the link | `id`, `attach_link`, `touch_links` (+ `primitive`/`mesh`/`position` to create it on the fly) |
 | `remove` / `detach` | remove the object named `id` | `id` |
 | `clear` | remove every world / attached object | — |
 | `enable` / `disable` | turn collision checking on / off globally | — |
+
+**Objects are TF frames.** Every collision object is published on `/tf` as a
+frame named by its `id` (a free object under the planning root, an attached one
+under its link). So after `add: box` you can target it from a later Cartesian
+step with `reference_frame: box` — the arm pose is then defined relative to the
+object. `add` itself also accepts `reference_frame` to place the object relative
+to any existing frame.
+
+**Attaching = grasping.** `attach` with **no geometry** attaches the
+*already-present* object with that `id`, keeping it exactly where it sits and
+preserving its shape — the natural "close the hand, then pick it up" step. The
+links the object is touching at that moment (the gripping hands) are detected
+and **allowed to touch it automatically**, so the grasped object does not trip
+self-collision as you move. `touch_links: [...]` allows extra links explicitly
+(e.g. to pre-allow the gripper to press on the object *before* the grasp, on the
+`add`).
 
 The geometry of an `add` / `attach` is **either a primitive or a mesh**:
 give `primitive` (box / sphere / cylinder) **or** `mesh` (a `package://` /
@@ -429,12 +445,16 @@ In a `sequences.yaml` step (`type: collision`), `primitive`, `position` and
    rpy_deg: [0, 0, 90]}                                                    # yaw 90 deg
 - {type: cartesian, group: right_arm, relative: true, offset: {z: -0.1}}   # approach
 - {type: gripper, group: right_gripper, gripper_position: 0.0}             # grasp
-- {type: collision, op: attach, id: box, attach_link: R_wrist_roll_link,
-   primitive: {type: box, dimensions: [0.05, 0.05, 0.15]}, position: [0.0, 0.0, 0.08]}
+# attach the EXISTING object where it sits — no geometry, hands auto-allowed
+- {type: collision, op: attach, id: box, attach_link: R_wrist_roll_link}
 - {type: cartesian, group: right_arm, relative: true, offset: {z: 0.15}}   # lift with box
-- {type: collision, op: disable}      # temporarily skip checking
 - {type: collision, op: detach, id: box}
 ```
+
+The `attach` above gives no geometry, so it re-attaches the `box` added earlier,
+keeping it in place and letting the gripping hand touch it. (You *can* still pass
+`primitive`/`mesh` + `position` on an `attach` to create-and-attach in one step,
+with the pose then expressed in the attach link's frame.)
 
 `primitive.type` accepts the names `box` / `sphere` / `cylinder` (or the numeric
 `1` / `2` / `3`). Box dimensions are `[x, y, z]`, sphere `[radius]`, cylinder

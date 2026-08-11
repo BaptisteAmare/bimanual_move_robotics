@@ -18,6 +18,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_broadcaster.h>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -78,6 +79,10 @@ private:
   // Apply a collision management step (add/remove/attach/detach/clear/toggle).
   bool executeCollisionStep(const MotionStep & step, std::string & error);
 
+  // Transform from a TF frame into the planning (collision root) frame. False
+  // if the frame is unknown / the lookup fails.
+  bool lookupPlanningFrame(const std::string & frame, Eigen::Isometry3d & out) const;
+
   // Log which link/object pairs collide at a group configuration (diagnostics).
   void logCollisions(const GroupConfig & g, const std::vector<double> & q, const char * label);
 
@@ -127,6 +132,7 @@ private:
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   std::atomic<bool> busy_{false};
   std::atomic<bool> cancel_requested_{false};
