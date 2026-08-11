@@ -22,7 +22,7 @@ collision rules, sequences — lives in **YAML**, not in the code.
 - [Build](#build)
 - [Run](#run)
 - [Configuration](#configuration)
-- [Motion types](#motion-types) — the six `MotionStep` primitives
+- [Motion types](#motion-types) — the seven `MotionStep` primitives
 - [ROS interface](#ros-interface) — `~/move`, `~/execute_sequence`, collision objects
 - [Sequences](#sequences) — chaining, blending, timing
 - [Notes & limitations](#notes--limitations)
@@ -232,6 +232,7 @@ runs a list. `type` selects the behavior:
 | `3` | Gripper | actuate a gripper group |
 | `4` | Follow | continuously track a (moving) TF frame |
 | `5` | Hold-tip | drive a joint (e.g. waist) while an arm holds the tip fixed |
+| `6` | Collision | add/remove/attach objects or toggle checking (barrier step) |
 
 Joint-space moves (`0`, `1`, and `2` with `cartesian_path:false`) try a straight
 line first and **fall back to RRT-Connect** around obstacles if blocked (see
@@ -376,6 +377,51 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
            joint_target: [0.2, 0.4, -0.3, 0.0, 0.5]}}"
 ```
 
+### `6` Collision (manage objects / toggle checking)
+A group-less **barrier** step: it manages the collision world (or turns checking
+on/off) *between* motions of a sequence, so you can e.g. add a table, move to
+grasp, attach the grasped box to the hand, then move away with the box now part
+of the robot. `collision_op` selects the action:
+
+| `op` | effect | fields used |
+|------|--------|-------------|
+| `add` | add a free world object at `pose_target` (planning root frame) | `id`, `primitive`, `position`, `orientation` |
+| `attach` | attach an object to a link; `pose_target` is in that link frame, and it rides with the link | `id`, `primitive`, `attach_link`, `position`, `orientation` |
+| `remove` / `detach` | remove the object named `id` | `id` |
+| `clear` | remove every world / attached object | — |
+| `enable` / `disable` | turn collision checking on / off globally | — |
+
+The same actions are available at runtime through the
+[`~/manage_collision_object`](#manage_collision_object--bimanual_msgssrvmanagecollisionobject)
+service; the step type just lets you script them inline in a sequence.
+
+```bash
+# add a 20 cm box 60 cm in front of the robot (unitary)
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 6, collision_op: add, collision_id: table,
+           collision_primitive: {type: 1, dimensions: [0.2, 0.2, 0.2]},
+           pose_target: {position: {x: 0.6, y: 0.0, z: 0.1}, orientation: {w: 1.0}}}}"
+```
+
+In a `sequences.yaml` step (`type: collision`), `primitive`, `position` and
+`orientation` ([x,y,z,w]) are given as short lists:
+
+```yaml
+- {type: collision, op: add, id: table,
+   primitive: {type: box, dimensions: [0.2, 0.2, 0.2]}, position: [0.6, 0.0, 0.1]}
+- {type: cartesian, group: right_arm, relative: true, offset: {z: -0.1}}   # approach
+- {type: gripper, group: right_gripper, gripper_position: 0.0}             # grasp
+- {type: collision, op: attach, id: box, attach_link: R_wrist_roll_link,
+   primitive: {type: box, dimensions: [0.05, 0.05, 0.15]}, position: [0.0, 0.0, 0.08]}
+- {type: cartesian, group: right_arm, relative: true, offset: {z: 0.15}}   # lift with box
+- {type: collision, op: disable}      # temporarily skip checking
+- {type: collision, op: detach, id: box}
+```
+
+`primitive.type` accepts the names `box` / `sphere` / `cylinder` (or the numeric
+`1` / `2` / `3`). Box dimensions are `[x, y, z]`, sphere `[radius]`, cylinder
+`[height, radius]`.
+
 ---
 
 ## ROS interface
@@ -387,7 +433,7 @@ and fields). `-f` streams feedback.
 ### `~/execute_sequence` — `bimanual_msgs/action/ExecuteSequence`
 Runs a predefined sequence (by `sequence_name`, from `sequences.yaml`) and/or
 inline `steps`. In YAML a step's `type` is the name: `named`, `joint`,
-`cartesian`, `gripper`, `follow`, `hold_tip`.
+`cartesian`, `gripper`, `follow`, `hold_tip`, `collision`.
 
 ```bash
 ros2 action send_goal -f /bimanual_manipulation_server/execute_sequence \

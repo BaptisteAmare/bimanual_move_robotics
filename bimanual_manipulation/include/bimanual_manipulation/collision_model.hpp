@@ -83,6 +83,7 @@ public:
 
   const std::string & rootFrame() const {return root_frame_;}
   bool enabled() const {return settings_.enabled;}
+  void setEnabled(bool e) {settings_.enabled = e;}
 
   // Diagnostics (valid after init()).
   size_t shapeCount() const {return sphere_mode_ ? spheres_.size() : shapes_.size();}

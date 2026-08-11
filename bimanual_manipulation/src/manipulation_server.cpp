@@ -885,8 +885,45 @@ bool ManipulationServer::executeFollow(
   return true;
 }
 
+bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::string & error)
+{
+  const std::string & op = step.collision_op;
+  const Eigen::Isometry3d pose = poseMsgToEigen(step.pose_target);
+  bool ok = true;
+  if (op == "add") {
+    ok = collision_.addObject(step.collision_id, step.collision_primitive, pose, error);
+  } else if (op == "attach") {
+    ok = collision_.addAttachedObject(
+      step.collision_id, step.collision_primitive, step.collision_attach_link, pose, error);
+  } else if (op == "remove" || op == "detach") {
+    ok = collision_.removeObject(step.collision_id);
+    if (!ok) {error = "collision object '" + step.collision_id + "' not found";}
+  } else if (op == "clear") {
+    collision_.clearObjects();
+  } else if (op == "enable") {
+    collision_.setEnabled(true);
+  } else if (op == "disable") {
+    collision_.setEnabled(false);
+  } else {
+    error = "unknown collision_op '" + op + "' (add/remove/attach/detach/clear/enable/disable)";
+    return false;
+  }
+  if (ok) {
+    if (step.collision_id.empty()) {
+      RCLCPP_INFO(get_logger(), "collision: %s", op.c_str());
+    } else {
+      RCLCPP_INFO(get_logger(), "collision: %s '%s'", op.c_str(), step.collision_id.c_str());
+    }
+  }
+  return ok;
+}
+
 bool ManipulationServer::executeStep(const MotionStep & step, std::string & error)
 {
+  if (step.type == MotionStep::TYPE_COLLISION) {
+    return executeCollisionStep(step, error);   // no group / motion
+  }
+
   auto git = config_.groups.find(step.group);
   if (git == config_.groups.end()) {
     error = "unknown move group '" + step.group + "'";
@@ -1061,6 +1098,14 @@ void ManipulationServer::seqAccepted(
         feedback->current_step = static_cast<int>(i);
         feedback->current_action = step.group;
         gh->publish_feedback(feedback);
+
+        // Group-less barrier steps (collision management): flush, then run.
+        if (step.type == MotionStep::TYPE_COLLISION) {
+          if (!flush(err)) {ok = false; break;}
+          if (!executeStep(step, err)) {ok = false; break;}
+          result->completed_steps++;
+          continue;
+        }
 
         auto git = config_.groups.find(step.group);
         if (git == config_.groups.end()) {

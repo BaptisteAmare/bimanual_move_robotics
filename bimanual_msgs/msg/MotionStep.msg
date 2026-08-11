@@ -10,6 +10,8 @@ uint8 TYPE_GRIPPER=3    # actuate a gripper group
 uint8 TYPE_FOLLOW=4     # continuously track a (possibly moving) TF frame
 uint8 TYPE_HOLD_TIP=5   # drive the group's driven_joints while the compensating
                         # subgroup keeps the tip fixed in the base frame
+uint8 TYPE_COLLISION=6  # manage a collision object / toggle collision checking
+                        # (a barrier step; no group / motion)
 
 uint8 type
 
@@ -95,3 +97,17 @@ float64 follow_timeout             # stop after this long [s], 0 -> no timeout
 float64 follow_position_tolerance  # "settled" distance to target [m], 0 -> off
 float64 follow_settle_time         # time spent within tolerance to stop [s]
 string follow_stop_topic           # std_msgs/Bool topic; a true msg stops it
+
+# --- TYPE_COLLISION --------------------------------------------------------
+# collision_op: add | remove | attach | detach | clear | enable | disable
+#   add     -> add a world object (collision_primitive at pose_target, in the
+#              planning root frame)
+#   attach  -> attach the object to collision_attach_link (pose_target in that
+#              link's frame); it then rides with the link
+#   remove / detach -> remove the object by collision_id
+#   clear   -> remove every world/attached object
+#   enable / disable -> turn collision checking on / off globally
+string collision_op
+string collision_id
+shape_msgs/SolidPrimitive collision_primitive
+string collision_attach_link

@@ -207,6 +207,38 @@ MotionStep parseStep(const YAML::Node & s)
       step.driven_absolute =
         s["driven_absolute"].as<bool>(s["absolute"].as<bool>(false));
     }
+  } else if (type == "collision") {
+    step.type = MotionStep::TYPE_COLLISION;
+    step.collision_op = s["op"].as<std::string>("");
+    step.collision_id = s["id"].as<std::string>("");
+    step.collision_attach_link = s["attach_link"].as<std::string>("");
+    const YAML::Node prim = s["primitive"];
+    if (prim) {
+      const std::string t = prim["type"].as<std::string>("box");
+      if (t == "box" || t == "1") {
+        step.collision_primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+      } else if (t == "sphere" || t == "2") {
+        step.collision_primitive.type = shape_msgs::msg::SolidPrimitive::SPHERE;
+      } else if (t == "cylinder" || t == "3") {
+        step.collision_primitive.type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+      }
+      step.collision_primitive.dimensions = asDoubleList(prim["dimensions"]);
+    }
+    auto pos = asDoubleList(s["position"]);
+    if (pos.size() == 3) {
+      step.pose_target.position.x = pos[0];
+      step.pose_target.position.y = pos[1];
+      step.pose_target.position.z = pos[2];
+    }
+    auto quat = asDoubleList(s["orientation"]);  // [x, y, z, w]
+    if (quat.size() == 4) {
+      step.pose_target.orientation.x = quat[0];
+      step.pose_target.orientation.y = quat[1];
+      step.pose_target.orientation.z = quat[2];
+      step.pose_target.orientation.w = quat[3];
+    } else {
+      step.pose_target.orientation.w = 1.0;
+    }
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;
     step.reference_frame = s["reference_frame"].as<std::string>("");
