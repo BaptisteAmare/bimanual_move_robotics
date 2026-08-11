@@ -163,6 +163,15 @@ MotionStep parseStep(const YAML::Node & s)
       step.offset.y = off[1];
       step.offset.z = off[2];
     }
+    // Dual-arm: one offset per subgroup, e.g. offsets: [[0,0.05,0],[0,-0.05,0]].
+    if (s["offsets"] && s["offsets"].IsSequence()) {
+      for (const auto & o : s["offsets"]) {
+        auto v = asDoubleList(o);
+        geometry_msgs::msg::Vector3 vv;
+        if (v.size() == 3) {vv.x = v[0]; vv.y = v[1]; vv.z = v[2];}
+        step.offsets.push_back(vv);
+      }
+    }
     auto pos = asDoubleList(s["position"]);
     if (pos.size() == 3) {
       step.pose_target.position.x = pos[0];

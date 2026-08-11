@@ -273,16 +273,32 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
 
 ### `2` Cartesian (dual-arm coordinated)
 A group with `cartesian_subgroups` (e.g. `both_arms: {cartesian_subgroups:
-[left_arm, right_arm]}`) applies **one shared `offset: [dx,dy,dz]`** to **both**
-tips at once, in the shared base frame, sampled together so the arms stay in
-sync. The relative pose between the hands is preserved → a two-handed grasp
-translates rigidly. Orientation is kept; pure straight-line translation.
+[left_arm, right_arm]}`) moves **both** tips at once, sampled together so the
+arms stay in sync (one trajectory split across both controllers). Orientation is
+kept; pure straight-line translation of each tip.
+
+**Frame.** The offset is expressed in each subgroup's **`base_link`** — the
+shared arm base (`arm_base_link` on Genie, `torso_link` on Walker) — or in each
+subgroup's **tip frame** when `offset_in_tip_frame: true`.
+
+* **`offset: [dx,dy,dz]`** — the *same* vector for both tips → the hands keep
+  their relative pose, a two-handed grasp translates **rigidly** (carry).
+* **`offsets: [[lx,ly,lz],[rx,ry,rz]]`** — one offset **per subgroup** (same
+  order as `cartesian_subgroups`) → the hands move **independently in one
+  simultaneous step**, e.g. spread/close.
 
 ```bash
-# lift an object held in both hands by 15 cm
+# carry: lift an object held in both hands by 15 cm (rigid)
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 2, group: both_arms, offset: {x: 0.0, y: 0.0, z: 0.15}}}"
 ```
+```yaml
+# spread the hands apart by 5 cm each, both arms at once (in a sequence):
+- {type: cartesian, group: both_arms, offsets: [[0.0, 0.05, 0.0], [0.0, -0.05, 0.0]]}
+```
+
+This replaces two separate `left_arm` / `right_arm` steps (which would run
+**sequentially** — a group change is a barrier) with one **simultaneous** step.
 
 ### `3` Gripper
 Actuates every gripper controller of the group. `named_target` (from

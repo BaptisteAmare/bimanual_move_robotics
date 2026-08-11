@@ -419,7 +419,6 @@ bool ManipulationServer::computeStepPath(
   // rigidly (the relative pose between the hands is preserved). Orientation is
   // kept; both arms are sampled together so they finish in sync.
   if (step.type == MotionStep::TYPE_CARTESIAN && !g.cartesian_subgroups.empty()) {
-    const Eigen::Vector3d delta(step.offset.x, step.offset.y, step.offset.z);
     struct Sub
     {
       std::shared_ptr<GroupKinematics> kin;
@@ -454,7 +453,27 @@ bool ManipulationServer::computeStepPath(
       subs.push_back(std::move(sub));
     }
 
-    const int M = std::max(1, static_cast<int>(std::ceil(delta.norm() / std::max(g.cartesian_step, 1e-4))));
+    // One offset per subgroup when step.offsets is given (move the hands
+    // independently — e.g. spread), else the single `offset` for all (rigid).
+    std::vector<Eigen::Vector3d> deltas;
+    if (step.offsets.size() == subs.size()) {
+      for (const auto & o : step.offsets) {deltas.emplace_back(o.x, o.y, o.z);}
+    } else if (step.offsets.empty()) {
+      deltas.assign(subs.size(), Eigen::Vector3d(step.offset.x, step.offset.y, step.offset.z));
+    } else {
+      error = "coordinated Cartesian: 'offsets' has " + std::to_string(step.offsets.size()) +
+        " entries but the group has " + std::to_string(subs.size()) + " cartesian_subgroups";
+      return false;
+    }
+    // Each offset is in that subgroup's base frame, or its tip frame when
+    // offset_in_tip_frame is set (each hand moves along its own axes).
+    double max_norm = 0.0;
+    for (size_t si = 0; si < subs.size(); ++si) {
+      if (step.offset_in_tip_frame) {deltas[si] = subs[si].tip0.linear() * deltas[si];}
+      max_norm = std::max(max_norm, deltas[si].norm());
+    }
+
+    const int M = std::max(1, static_cast<int>(std::ceil(max_norm / std::max(g.cartesian_step, 1e-4))));
     path.clear();
     path.push_back(start);
     for (int s = 1; s <= M; ++s) {
@@ -462,19 +481,18 @@ bool ManipulationServer::computeStepPath(
       std::vector<double> full = start;
       for (size_t si = 0; si < subs.size(); ++si) {
         Eigen::Isometry3d goal = subs[si].tip0;
-        goal.translation() += delta * f;   // same translation, base frame, no rotation
+        goal.translation() += deltas[si] * f;   // translation only, orientation kept
         std::vector<double> qsub;
         if (!subs[si].kin->ik(goal, subs[si].seed, qsub, /*limit_jump=*/true)) {
           error = "coordinated Cartesian: IK failed for subgroup '" +
-            g.cartesian_subgroups[si] + "' at " + std::to_string(f * delta.norm()) + " m";
+            g.cartesian_subgroups[si] + "' at fraction " + std::to_string(f);
           return false;
         }
         for (size_t k = 0; k < subs[si].idx.size(); ++k) {full[subs[si].idx[k]] = qsub[k];}
         subs[si].seed = qsub;
       }
       if (!valid(full)) {
-        error = "coordinated Cartesian: collision at " +
-          std::to_string(f * delta.norm()) + " m along the move";
+        error = "coordinated Cartesian: collision at fraction " + std::to_string(f);
         return false;
       }
       path.push_back(std::move(full));

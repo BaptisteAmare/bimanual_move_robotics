@@ -56,6 +56,13 @@ geometry_msgs/Vector3 offset
 # tool's +Z axis); otherwise it is expressed in the arm's base frame.
 bool offset_in_tip_frame
 
+# Dual-arm coordinated Cartesian (group with cartesian_subgroups) only: one
+# offset PER subgroup, in the same order. If empty, `offset` is applied to every
+# subgroup (rigid two-handed carry). Give one per subgroup to move the hands
+# independently in one simultaneous step, e.g. spread: left [0,0.05,0],
+# right [0,-0.05,0]. offset_in_tip_frame applies per subgroup too.
+geometry_msgs/Vector3[] offsets
+
 # Motion shape for TYPE_CARTESIAN:
 #   true  -> straight line of the tip in Cartesian space (IK per waypoint),
 #            precise for approach / retreat.
