@@ -408,15 +408,24 @@ service; the step type just lets you script them inline in a sequence.
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 6, collision_op: add, collision_id: table,
            collision_primitive: {type: 1, dimensions: [0.2, 0.2, 0.2]},
-           pose_target: {position: {x: 0.6, y: 0.0, z: 0.1}, orientation: {w: 1.0}}}}"
+           pose_target: {position: {x: 0.6, y: 0.0, z: 0.1}},
+           collision_rpy: {x: 0.0, y: 0.0, z: 1.57}}}"   # yaw 90 deg, in RADIANS
 ```
+
+**Orientation — RPY instead of quaternions.** Quaternions are painful to type
+by hand, so a collision object's orientation can be given as roll/pitch/yaw
+(**radians**) via `collision_rpy` (CLI) or `rpy: [r, p, y]` / `rpy_deg: [r, p, y]`
+(sequence YAML, degrees variant included). It is used whenever no quaternion is
+given; leave `pose_target.orientation` / `orientation` out to use it. Default is
+no rotation.
 
 In a `sequences.yaml` step (`type: collision`), `primitive`, `position` and
 `orientation` ([x,y,z,w]) are given as short lists:
 
 ```yaml
 - {type: collision, op: add, id: table,
-   primitive: {type: box, dimensions: [0.2, 0.2, 0.2]}, position: [0.6, 0.0, 0.1]}
+   primitive: {type: box, dimensions: [0.2, 0.2, 0.2]}, position: [0.6, 0.0, 0.1],
+   rpy_deg: [0, 0, 90]}                                                    # yaw 90 deg
 - {type: cartesian, group: right_arm, relative: true, offset: {z: -0.1}}   # approach
 - {type: gripper, group: right_gripper, gripper_position: 0.0}             # grasp
 - {type: collision, op: attach, id: box, attach_link: R_wrist_roll_link,

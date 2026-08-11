@@ -248,8 +248,21 @@ MotionStep parseStep(const YAML::Node & s)
       step.pose_target.orientation.y = quat[1];
       step.pose_target.orientation.z = quat[2];
       step.pose_target.orientation.w = quat[3];
-    } else {
-      step.pose_target.orientation.w = 1.0;
+    }
+    // Easier orientation: roll/pitch/yaw. `rpy` in radians, `rpy_deg` in
+    // degrees. The server uses it whenever no quaternion is given (default =
+    // no rotation), so just leave `orientation` out to use it.
+    auto rpy = asDoubleList(s["rpy"]);
+    auto rpy_deg = asDoubleList(s["rpy_deg"]);
+    if (rpy.size() == 3) {
+      step.collision_rpy.x = rpy[0];
+      step.collision_rpy.y = rpy[1];
+      step.collision_rpy.z = rpy[2];
+    } else if (rpy_deg.size() == 3) {
+      constexpr double kDeg2Rad = 3.14159265358979323846 / 180.0;
+      step.collision_rpy.x = rpy_deg[0] * kDeg2Rad;
+      step.collision_rpy.y = rpy_deg[1] * kDeg2Rad;
+      step.collision_rpy.z = rpy_deg[2] * kDeg2Rad;
     }
   } else if (type == "follow") {
     step.type = MotionStep::TYPE_FOLLOW;

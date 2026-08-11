@@ -119,3 +119,9 @@ shape_msgs/SolidPrimitive collision_primitive
 string collision_attach_link
 string collision_mesh
 geometry_msgs/Vector3 collision_mesh_scale
+
+# Object orientation. Use EITHER pose_target.orientation (a quaternion) OR
+# collision_rpy (roll, pitch, yaw in RADIANS) — much easier to write by hand.
+# collision_rpy is used whenever pose_target.orientation is left unset (a
+# zero/invalid quaternion); the default (0,0,0) is no rotation.
+geometry_msgs/Vector3 collision_rpy

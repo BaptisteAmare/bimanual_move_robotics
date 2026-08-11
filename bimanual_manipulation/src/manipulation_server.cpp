@@ -888,7 +888,16 @@ bool ManipulationServer::executeFollow(
 bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::string & error)
 {
   const std::string & op = step.collision_op;
-  const Eigen::Isometry3d pose = poseMsgToEigen(step.pose_target);
+  // Orientation: a quaternion if one was given, otherwise roll/pitch/yaw
+  // (collision_rpy, radians) — far easier to type than a quaternion.
+  Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
+  pose.translation() = Eigen::Vector3d(
+    step.pose_target.position.x, step.pose_target.position.y, step.pose_target.position.z);
+  const auto & q = step.pose_target.orientation;
+  const double qn = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+  pose.linear() = (qn > 1e-6) ?
+    Eigen::Quaterniond(q.w, q.x, q.y, q.z).normalized().toRotationMatrix() :
+    rpyToQuat(step.collision_rpy.x, step.collision_rpy.y, step.collision_rpy.z).toRotationMatrix();
   const Eigen::Vector3d scale(
     step.collision_mesh_scale.x, step.collision_mesh_scale.y, step.collision_mesh_scale.z);
   const bool is_mesh = !step.collision_mesh.empty();

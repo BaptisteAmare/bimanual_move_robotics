@@ -122,6 +122,15 @@ inline KDL::Frame eigenToKdl(const Eigen::Isometry3d & t)
     KDL::Vector(p.x(), p.y(), p.z()));
 }
 
+// Roll-pitch-yaw (radians, intrinsic X-Y-Z / fixed-axis Z-Y-X) -> quaternion.
+inline Eigen::Quaterniond rpyToQuat(double roll, double pitch, double yaw)
+{
+  return Eigen::Quaterniond(
+    Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+    Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+    Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()));
+}
+
 inline Eigen::Isometry3d poseMsgToEigen(const geometry_msgs::msg::Pose & p)
 {
   Eigen::Isometry3d t = Eigen::Isometry3d::Identity();
