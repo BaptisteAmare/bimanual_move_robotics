@@ -679,8 +679,23 @@ bool ManipulationServer::computeStepPath(
     // KDL might otherwise fold the arm into the body.
     std::vector<double> target;
     if (!kin->ik(goal_pose, start, target, /*limit_jump=*/false, step.free_orientation, valid)) {
-      error = "IK failed for the requested pose target (group '" + g.name +
-        "'): no collision-free solution found";
+      // Distinguish "unreachable" from "reachable but every solution collides",
+      // and in the latter case say WHAT it collides with (usually the object
+      // being reached for — allow it via touch_links, or move the target).
+      std::vector<double> any;
+      if (kin->ik(goal_pose, start, any, /*limit_jump=*/false, step.free_orientation)) {
+        std::map<std::string, double> full = base_state;
+        for (size_t i = 0; i < joints.size() && i < any.size(); ++i) {full[joints[i]] = any[i];}
+        const auto pairs = collision_.describeCollisions(full, &active);
+        std::string detail;
+        for (size_t i = 0; i < pairs.size() && i < 6; ++i) {detail += "\n    - " + pairs[i];}
+        error = "IK for group '" + g.name +
+          "': a reachable solution exists but it is in collision" +
+          (detail.empty() ? " (no colliding pair reported)" : detail);
+      } else {
+        error = "IK for group '" + g.name +
+          "': target pose is unreachable (no kinematic solution)";
+      }
       return false;
     }
     return jointWithFallback(target);
