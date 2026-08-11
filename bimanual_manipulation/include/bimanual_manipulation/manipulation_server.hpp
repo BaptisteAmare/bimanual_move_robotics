@@ -75,6 +75,9 @@ private:
 
   bool executeGripperStep(const GroupConfig & g, const MotionStep & step, std::string & error);
 
+  // Apply a collision management step (add/remove/attach/detach/clear/toggle).
+  bool executeCollisionStep(const MotionStep & step, std::string & error);
+
   // Log which link/object pairs collide at a group configuration (diagnostics).
   void logCollisions(const GroupConfig & g, const std::vector<double> & q, const char * label);
 
