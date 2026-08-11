@@ -888,16 +888,26 @@ bool ManipulationServer::executeFollow(
 bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::string & error)
 {
   const std::string & op = step.collision_op;
-  // Orientation: a quaternion if one was given, otherwise roll/pitch/yaw
-  // (collision_rpy, radians) — far easier to type than a quaternion.
+  // Orientation: roll/pitch/yaw (collision_rpy, radians) when it is set to
+  // anything non-zero — far easier to type than a quaternion. We can't tell an
+  // "unset" quaternion apart from an identity one (the ros2 CLI fills w=1 by
+  // default), so a non-zero RPY is the explicit signal to use RPY; otherwise
+  // fall back to whatever quaternion is in pose_target (identity by default).
+  const auto & r = step.collision_rpy;
+  const bool use_rpy =
+    std::abs(r.x) > 1e-9 || std::abs(r.y) > 1e-9 || std::abs(r.z) > 1e-9;
   Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
   pose.translation() = Eigen::Vector3d(
     step.pose_target.position.x, step.pose_target.position.y, step.pose_target.position.z);
-  const auto & q = step.pose_target.orientation;
-  const double qn = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
-  pose.linear() = (qn > 1e-6) ?
-    Eigen::Quaterniond(q.w, q.x, q.y, q.z).normalized().toRotationMatrix() :
-    rpyToQuat(step.collision_rpy.x, step.collision_rpy.y, step.collision_rpy.z).toRotationMatrix();
+  if (use_rpy) {
+    pose.linear() = rpyToQuat(r.x, r.y, r.z).toRotationMatrix();
+  } else {
+    const auto & q = step.pose_target.orientation;
+    const double qn = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+    pose.linear() = (qn > 1e-6) ?
+      Eigen::Quaterniond(q.w, q.x, q.y, q.z).normalized().toRotationMatrix() :
+      Eigen::Matrix3d::Identity();
+  }
   const Eigen::Vector3d scale(
     step.collision_mesh_scale.x, step.collision_mesh_scale.y, step.collision_mesh_scale.z);
   const bool is_mesh = !step.collision_mesh.empty();
@@ -926,7 +936,14 @@ bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::stri
     return false;
   }
   if (ok) {
-    if (step.collision_id.empty()) {
+    if (op == "add" || op == "attach") {
+      const Eigen::Vector3d t = pose.translation();
+      const Eigen::Vector3d e = pose.linear().eulerAngles(2, 1, 0);  // yaw, pitch, roll
+      RCLCPP_INFO(
+        get_logger(), "collision: %s '%s' at [%.3f %.3f %.3f] rpy [%.3f %.3f %.3f]%s",
+        op.c_str(), step.collision_id.c_str(), t.x(), t.y(), t.z(),
+        e.z(), e.y(), e.x(), is_mesh ? " (mesh)" : "");
+    } else if (step.collision_id.empty()) {
       RCLCPP_INFO(get_logger(), "collision: %s", op.c_str());
     } else {
       RCLCPP_INFO(get_logger(), "collision: %s '%s'", op.c_str(), step.collision_id.c_str());

@@ -415,9 +415,10 @@ ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Mo
 **Orientation — RPY instead of quaternions.** Quaternions are painful to type
 by hand, so a collision object's orientation can be given as roll/pitch/yaw
 (**radians**) via `collision_rpy` (CLI) or `rpy: [r, p, y]` / `rpy_deg: [r, p, y]`
-(sequence YAML, degrees variant included). It is used whenever no quaternion is
-given; leave `pose_target.orientation` / `orientation` out to use it. Default is
-no rotation.
+(sequence YAML, degrees variant included). RPY is used as soon as it is
+**non-zero** (the `ros2` CLI always fills the quaternion with `w=1`, so a
+non-zero RPY is the explicit signal); leave it at `(0,0,0)` to use
+`pose_target.orientation` / `orientation` instead. Default is no rotation.
 
 In a `sequences.yaml` step (`type: collision`), `primitive`, `position` and
 `orientation` ([x,y,z,w]) are given as short lists:
