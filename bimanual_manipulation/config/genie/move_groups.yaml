@@ -107,6 +107,9 @@ groups:
 
   # Torso alone (5 DOF): joint-space / named moves only (no single tip).
   body:
+    base_link: base_link
+    tip_link: body_link5
+    cartesian_step: 0.005
     joints:
       - idx01_body_joint1     # pitch  [-1.08, 0.0]
       - idx02_body_joint2     # pitch  [ 0.0, 2.65]
@@ -123,33 +126,61 @@ groups:
   # alone can't reach. Uncomment and make sure /body_controller can command
   # idx05_body_joint5 (a JTC accepts a subset of its joints).
   #
-  # left_arm_with_torso:
-  #   base_link: base_link
-  #   tip_link: arm_l_end_link
-  #   joints:
-  #     - idx01_body_joint1
-  #     - idx02_body_joint2
-  #     - idx03_body_joint3
-  #     - idx04_body_joint4
-  #     - idx05_body_joint5
-  #     - idx21_arm_l_joint1
-  #     - idx22_arm_l_joint2
-  #     - idx23_arm_l_joint3
-  #     - idx24_arm_l_joint4
-  #     - idx25_arm_l_joint5
-  #     - idx26_arm_l_joint6
-  #     - idx27_arm_l_joint7
-  #   locked_joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3, idx04_body_joint4]
-  #   assist_joints: [idx05_body_joint5]
-  #   controllers:
-  #     - name: /left_arm_controller/follow_joint_trajectory
-  #       type: follow_joint_trajectory
-  #       joints: [idx21_arm_l_joint1, idx22_arm_l_joint2, idx23_arm_l_joint3,
-  #                idx24_arm_l_joint4, idx25_arm_l_joint5, idx26_arm_l_joint6, idx27_arm_l_joint7]
-  #     - name: /body_controller/follow_joint_trajectory
-  #       type: follow_joint_trajectory
-  #       joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3,
-  #                idx04_body_joint4, idx05_body_joint5]
+  left_arm_with_torso:
+    base_link: base_link
+    tip_link: arm_l_end_link
+    joints:
+      - idx01_body_joint1
+      - idx02_body_joint2
+      - idx03_body_joint3
+      - idx04_body_joint4
+      - idx05_body_joint5
+      - idx21_arm_l_joint1
+      - idx22_arm_l_joint2
+      - idx23_arm_l_joint3
+      - idx24_arm_l_joint4
+      - idx25_arm_l_joint5
+      - idx26_arm_l_joint6
+      - idx27_arm_l_joint7
+    locked_joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3, idx04_body_joint4]
+    assist_joints: [idx05_body_joint5]
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [idx21_arm_l_joint1, idx22_arm_l_joint2, idx23_arm_l_joint3,
+                 idx24_arm_l_joint4, idx25_arm_l_joint5, idx26_arm_l_joint6, idx27_arm_l_joint7]
+      - name: /body_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3,
+                 idx04_body_joint4, idx05_body_joint5]
+  
+  right_arm_with_torso:
+    base_link: base_link
+    tip_link: arm_r_end_link
+    joints:
+      - idx01_body_joint1
+      - idx02_body_joint2
+      - idx03_body_joint3
+      - idx04_body_joint4
+      - idx05_body_joint5
+      - idx61_arm_r_joint1
+      - idx62_arm_r_joint2
+      - idx63_arm_r_joint3
+      - idx64_arm_r_joint4
+      - idx65_arm_r_joint5
+      - idx66_arm_r_joint6
+      - idx67_arm_r_joint7
+    locked_joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3, idx04_body_joint4]
+    assist_joints: [idx05_body_joint5]
+    controllers:
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [idx61_arm_r_joint1, idx62_arm_r_joint2, idx63_arm_r_joint3,
+                 idx64_arm_r_joint4, idx65_arm_r_joint5, idx66_arm_r_joint6, idx67_arm_r_joint7]
+      - name: /body_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3,
+                 idx04_body_joint4, idx05_body_joint5]
 
   # Constrained "hold the tip" group: drive the waist while the RIGHT arm
   # compensates so the hand stays fixed (e.g. hand attached to an object).
@@ -180,6 +211,45 @@ groups:
       - name: /body_controller/follow_joint_trajectory
         type: follow_joint_trajectory
         joints: [idx05_body_joint5]
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - idx61_arm_r_joint1
+          - idx62_arm_r_joint2
+          - idx63_arm_r_joint3
+          - idx64_arm_r_joint4
+          - idx65_arm_r_joint5
+          - idx66_arm_r_joint6
+          - idx67_arm_r_joint7
+
+
+  body_right_arm:
+    base_link: chassis_link
+    tip_link: arm_r_end_link
+    driven_joints: [idx01_body_joint1, idx02_body_joint2, idx03_body_joint3, idx04_body_joint4, idx05_body_joint5]
+    compensating_subgroup: right_arm
+    joints:
+      - idx01_body_joint1
+      - idx02_body_joint2
+      - idx03_body_joint3
+      - idx04_body_joint4
+      - idx05_body_joint5
+      - idx61_arm_r_joint1
+      - idx62_arm_r_joint2
+      - idx63_arm_r_joint3
+      - idx64_arm_r_joint4
+      - idx65_arm_r_joint5
+      - idx66_arm_r_joint6
+      - idx67_arm_r_joint7
+    controllers:
+      - name: /body_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints:
+          - idx01_body_joint1
+          - idx02_body_joint2
+          - idx03_body_joint3
+          - idx04_body_joint4
+          - idx05_body_joint5
       - name: /right_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
         joints:

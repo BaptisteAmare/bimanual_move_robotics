@@ -13,14 +13,33 @@ sequences:
     - {type: cartesian, group: right_arm, reference_frame: slot_1,
        position: [0.0, 0.0, 0.0], cartesian_path: false}
     - {type: named, group: left_arm, named: above_box}
-    - {type: hold_tip, group: waist_right_arm, joint_target: [-1.2]}
-    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.2], cartesian_path: true}
-    - {type: hold_tip, group: waist_right_arm, joint_target: [-0.37]}
-    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.35], cartesian_path: true}
+    - {type: named, group: body, named: up_back}
+    - {type: hold_tip, group: waist_right_arm, driven_absolute: true, joint_target: [-1.2]}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.2], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: hold_tip, group: waist_right_arm, driven_absolute: true, joint_target: [-1.57]}
+    # - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.35], cartesian_path: true}
+    - {type: hold_tip, group: body_right_arm, driven_absolute: true, joint_target: [0.0, 0.45, -0.50, 0.0, -1.57]}
     - {type: named, group: left_arm, named: pre_grasp_crf}
     - {type: cartesian, group: left_arm, reference_frame: arm_r_end_link,
        position: [0.0, 0.0, 0.60], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
     - {type: named, group: body, named: up_back}
+    - {type: named, group: body, named: home}
+
+  crf_down:
+    - {type: named, group: body, named: down_front}
+    - {type: cartesian, group: right_arm, reference_frame: slot_2,
+       position: [0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: named, group: left_arm, named: above_box}
+    - {type: named, group: body, named: down_back}
+    - {type: hold_tip, group: waist_right_arm, driven_absolute: true, joint_target: [-1.0]}
+    - {type: cartesian, group: right_arm, relative: true, 
+       offset: [0.0, 0.0, -0.4], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: hold_tip, group: waist_right_arm, driven_absolute: true, joint_target: [-1.57]}
+    # - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.35], cartesian_path: true}
+    - {type: hold_tip, group: body_right_arm, driven_absolute: true, joint_target: [-0.52,  2.28, -1.77, 0.0, -1.57]}
+    - {type: named, group: left_arm, named: pre_grasp_crf}
+    - {type: cartesian, group: left_arm, reference_frame: arm_r_end_link,
+       position: [0.0, 0.0, 0.60], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
     - {type: named, group: body, named: home}
 
 
@@ -30,6 +49,19 @@ sequences:
     - {type: named, group: body, named: drop_front}
     - {type: cartesian, group: both_arms, offset: [0.0, 0.05, 0.0]}   # descend 5 cm
 
+  crf_drop2:
+    - {type: cartesian, group: both_arms, offset: [0.0, -0.05, 0.0]}   # monte 5 cm
+    - {type: named, group: body, named: up_front}
+    - {type: named, group: body, named: drop_front}
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.05, 0.0]}   # descend 5 cm
+    - {type: cartesian, group: left_arm, relative: true, offset: [0.1, 0.0, 0.0], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: named, group: left_arm, named: above_box}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, 0.3], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: hold_tip, group: waist_right_arm, driven_absolute: true, joint_target: [0.8]}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, 0.2], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: cartesian, group: right_arm, relative: true, offset: [0.1, 0.0, 0.0], offset_in_tip_frame: true, cartesian_path: true}
+    - {type: named, group: body, named: home}
+    - {type: named, group: both_arms, named: ready}
 
 
 
