@@ -20,70 +20,10 @@ sequences:
   # Bring both arms to a ready pose (both controllers move together).
   both_ready:
     - {type: named, group: both_arms, named: ready}
-
+    - {type: named, group: waist, named: home}
+  
   home:
     - {type: named, group: both_arms, named: home}
-
-  # Consecutive steps of the SAME group are concatenated into a single
-  # continuous trajectory (no stop between steps). With acceleration_limiting
-  # false they run at constant velocity. blend_radius (optional, 0 here) would
-  # round the corners. Gripper steps / group changes break the continuity.
-  wave_left:
-    - {type: named, group: left_arm, named: ready}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.10, 0.0], cartesian_path: true}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.10, 0.0], cartesian_path: true}
-    - {type: named, group: left_arm, named: home}
-
-  # L-shape demo of blend_radius: go to ready, move +Y then +Z. The corner of
-  # the L is rounded by blend_radius (path), while the motion stays at constant
-  # velocity (acceleration_limiting: false). Set blend_radius: 0.0 to compare.
-  reach_corner:
-    - {type: named, group: left_arm, named: ready}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 0.4}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.20], cartesian_path: true}
-
-  # Two-handed carry: with cartesian_subgroups set on both_arms, a cartesian
-  # step translates BOTH tips by the same offset [dx,dy,dz] (in the arms' base
-  # frame) at the same time, keeping the hands' relative pose fixed — i.e. the
-  # grasped object moves rigidly. Requires the object already held by both hands.
-  carry_up_and_forward:
-    - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # lift 15 cm
-    - {type: cartesian, group: both_arms, offset: [0.20, 0.0, 0.0]}   # then 20 cm forward
-
-  # Track a moving TF frame, then move on. The follow step continuously servos
-  # the left tip to (moving_target * delta) and stops when the tip stays within
-  # 3 cm of the target for 1 s (object reached/stopped), or after 15 s, or when
-  # a true is published on /follow_stop. Then it proceeds to home.
-  track_object:
-    - {type: follow, group: left_arm, reference_frame: moving_target,
-       position: [0.0, 0.0, 0.10],
-       follow_position_tolerance: 0.03, follow_settle_time: 1.0,
-       follow_timeout: 15.0, follow_stop_topic: /follow_stop}
-    - {type: named, group: left_arm, named: home}
-
-  # Straight-line reach with the left hand: 10 cm forward along the tool axis,
-  # then back. A grasp step (gripper) would go between the two when a hand
-  # controller is available.
-  reach_left:
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, 0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-
-  reach_right:
-    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, 0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.0, -0.10], offset_in_tip_frame: true, velocity_scaling: 0.15}
-
-  # Pose target defined relative to a TF frame (MoveIt-like "pose in frame_id").
-  # Here: bring the left tip 15 cm above an object frame 'target_object', then
-  # descend straight down onto it.
-  #   - reference_frame : any TF frame (object, fixture, camera, ...)
-  #   - position/orientation : the delta pose in that frame
-  #   - cartesian_path  : false = IK + joint interpolation (reach), true = straight line
-  pick_above_object:
-    - {type: cartesian, group: left_arm, reference_frame: target_object,
-       position: [0.0, 0.0, 0.15], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
-    - {type: cartesian, group: left_arm, reference_frame: target_object,
-       position: [0.0, 0.0, 0.02], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: true,
-       velocity_scaling: 0.1}
 
   ceva_box_pick:
     - {type: named, group: both_arms, named: safe_above_table}
@@ -92,8 +32,30 @@ sequences:
        position: [0.0, 0.4, 0.0], cartesian_path: false}
     - {type: cartesian, group: right_arm, reference_frame: box,
        position: [0.0, -0.4, 0.0], cartesian_path: false}
-    - {type: cartesian, group: right_arm, relative: true, offset: [0.0, 0.20, 0.0], cartesian_path: true, blend_radius: 1.0}
-    - {type: cartesian, group: left_arm, relative: true, offset: [0.0, -0.20, 0.0], cartesian_path: true}
+    - {type: cartesian, group: both_arms, offsets: [[0.0, -0.20, 0.0], [0.0, 0.20, 0.0]], cartesian_path: true}
     - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # monte 15 cm
     - {type: cartesian, group: both_arms, offset: [-0.1, 0.0, 0.0]}   # puis 20 cm avant
-    
+
+  ceva_pick_inside_60:
+    - {type: named, group: both_arms, named: safe_above_table}
+    - {type: cartesian, group: right_arm, reference_frame: box,
+        position: [0.1, -0.25, 0.1], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: cartesian, group: left_arm, reference_frame: box,
+        position: [0.1, 0.25, 0.1], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: joint, group: left_wrist, joint_target: [0.75]}
+    - {type: joint, group: right_wrist, joint_target: [0.75]}
+    - {type: cartesian, group: both_arms, offsets: [[0.0, 0.05, 0.0], [0.0, -0.05, 0.0]], cartesian_path: true}
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # monte 15 cm
+    - {type: cartesian, group: both_arms, offset: [-0.15, 0.0, 0.0]}   # rapproche 15 cm
+
+  ceva_pick_inside_20:
+    - {type: named, group: both_arms, named: safe_above_table}
+    - {type: cartesian, group: right_arm, reference_frame: box,
+        position: [0.1, -0.17, 0.1], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: cartesian, group: left_arm, reference_frame: box,
+        position: [0.1, 0.17, 0.1], orientation: [1.0, 0.0, 0.0, 0.0], cartesian_path: false}
+    - {type: joint, group: left_wrist, joint_target: [0.75]}
+    - {type: joint, group: right_wrist, joint_target: [0.75]}
+    - {type: cartesian, group: both_arms, offsets: [[0.0, 0.05, 0.0], [0.0, -0.05, 0.0]], cartesian_path: true}
+    - {type: cartesian, group: both_arms, offset: [0.0, 0.0, 0.15]}   # monte 15 cm
+    - {type: cartesian, group: both_arms, offset: [-0.15, 0.0, 0.0]}   # rapproche 15 cm

@@ -54,6 +54,20 @@ groups:
       - name: /left_arm_controller/follow_joint_trajectory
         type: follow_joint_trajectory
 
+  left_wrist:
+    joints: [L_wrist_roll_joint]
+    controllers:
+      - name: /left_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [L_wrist_roll_joint]
+  
+  right_wrist:
+    joints: [R_wrist_roll_joint]
+    controllers:
+      - name: /right_arm_controller/follow_joint_trajectory
+        type: follow_joint_trajectory
+        joints: [R_wrist_roll_joint]
+
   right_arm:
     base_link: torso_link
     tip_link: R_industrial_hand_contact_frame

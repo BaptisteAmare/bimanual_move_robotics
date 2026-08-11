@@ -245,6 +245,11 @@ explicit values in the group's joint order.
 ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
   "{step: {type: 0, group: left_arm, named_target: ready}}"
 ```
+```bash
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 1, group: left_arm, joint_target: [0.0, -0.5, 0.0, -1.0, 0.0, 0.3, 0.0]}}"
+```
+
 
 ### `2` Cartesian (single arm)
 Moves the group tip. How the goal pose is resolved:

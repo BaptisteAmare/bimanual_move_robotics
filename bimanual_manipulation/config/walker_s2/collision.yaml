@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 
 collision:
-  enabled: true
+  enabled: false
   # Collision geometry mode:
   #   mesh    -> FCL on the (decimated) meshes: exact, a bit slower.
   #   spheres -> each link approximated by spheres, checked analytically:
