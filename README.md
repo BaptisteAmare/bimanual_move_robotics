@@ -385,11 +385,19 @@ of the robot. `collision_op` selects the action:
 
 | `op` | effect | fields used |
 |------|--------|-------------|
-| `add` | add a free world object at `pose_target` (planning root frame) | `id`, `primitive`, `position`, `orientation` |
-| `attach` | attach an object to a link; `pose_target` is in that link frame, and it rides with the link | `id`, `primitive`, `attach_link`, `position`, `orientation` |
+| `add` | add a free world object at `pose_target` (planning root frame) | `id`, `primitive` **or** `mesh`, `position`, `orientation` |
+| `attach` | attach an object to a link; `pose_target` is in that link frame, and it rides with the link | `id`, `primitive` **or** `mesh`, `attach_link`, `position`, `orientation` |
 | `remove` / `detach` | remove the object named `id` | `id` |
 | `clear` | remove every world / attached object | — |
 | `enable` / `disable` | turn collision checking on / off globally | — |
+
+The geometry of an `add` / `attach` is **either a primitive or a mesh**:
+give `primitive` (box / sphere / cylinder) **or** `mesh` (a `package://` /
+`file://` resource). A mesh is loaded and **reduced exactly like the robot's own
+meshes** — decimated to a coarse BVH in `mesh` mode, or clustered into a sphere
+proxy in `spheres` mode (`collision.yaml`) — so it stays cheap to plan against.
+`scale` (`[sx,sy,sz]`, or a single factor) scales it; each component `<= 0`
+means `1`.
 
 The same actions are available at runtime through the
 [`~/manage_collision_object`](#manage_collision_object--bimanual_msgssrvmanagecollisionobject)
@@ -421,6 +429,26 @@ In a `sequences.yaml` step (`type: collision`), `primitive`, `position` and
 `primitive.type` accepts the names `box` / `sphere` / `cylinder` (or the numeric
 `1` / `2` / `3`). Box dimensions are `[x, y, z]`, sphere `[radius]`, cylinder
 `[height, radius]`.
+
+**Mesh objects** — swap `primitive` for `mesh` (+ optional `scale`):
+
+```yaml
+# add a mesh obstacle (loaded + decimated like the robot's meshes)
+- {type: collision, op: add, id: cart, mesh: package://my_scene/meshes/cart.dae,
+   scale: [1, 1, 1], position: [0.7, 0.0, 0.0]}
+# attach a scanned tool mesh to the gripper, then move with it
+- {type: collision, op: attach, id: tool, mesh: file:///home/me/tool.stl,
+   attach_link: R_wrist_roll_link, position: [0.0, 0.0, 0.05]}
+```
+
+```bash
+# unitary, via ~/move
+ros2 action send_goal /bimanual_manipulation_server/move bimanual_msgs/action/Move \
+  "{step: {type: 6, collision_op: add, collision_id: cart,
+           collision_mesh: package://my_scene/meshes/cart.dae,
+           collision_mesh_scale: {x: 1, y: 1, z: 1},
+           pose_target: {position: {x: 0.7, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
+```
 
 ---
 
@@ -455,6 +483,8 @@ ros2 service call /bimanual_manipulation_server/manage_collision_object \
 
 `operation`: `0` ADD, `1` REMOVE, `2` ATTACH, `3` DETACH, `4` CLEAR. ADD poses
 are in the planning (URDF root) frame; ATTACH poses in `attach_link`'s frame.
+For a **mesh** object, set `mesh_resource` (`package://` / `file://`, loaded and
+reduced like the robot's meshes) and optional `mesh_scale` instead of `primitive`.
 
 **Visualization.** World objects are published as a
 `visualization_msgs/MarkerArray` on `~/collision_objects` (transient-local). Add

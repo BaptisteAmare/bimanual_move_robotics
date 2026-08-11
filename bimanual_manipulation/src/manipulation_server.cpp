@@ -889,12 +889,20 @@ bool ManipulationServer::executeCollisionStep(const MotionStep & step, std::stri
 {
   const std::string & op = step.collision_op;
   const Eigen::Isometry3d pose = poseMsgToEigen(step.pose_target);
+  const Eigen::Vector3d scale(
+    step.collision_mesh_scale.x, step.collision_mesh_scale.y, step.collision_mesh_scale.z);
+  const bool is_mesh = !step.collision_mesh.empty();
   bool ok = true;
   if (op == "add") {
-    ok = collision_.addObject(step.collision_id, step.collision_primitive, pose, error);
+    ok = is_mesh ?
+      collision_.addMeshObject(step.collision_id, step.collision_mesh, scale, pose, error) :
+      collision_.addObject(step.collision_id, step.collision_primitive, pose, error);
   } else if (op == "attach") {
-    ok = collision_.addAttachedObject(
-      step.collision_id, step.collision_primitive, step.collision_attach_link, pose, error);
+    ok = is_mesh ?
+      collision_.addAttachedMeshObject(
+        step.collision_id, step.collision_mesh, scale, step.collision_attach_link, pose, error) :
+      collision_.addAttachedObject(
+        step.collision_id, step.collision_primitive, step.collision_attach_link, pose, error);
   } else if (op == "remove" || op == "detach") {
     ok = collision_.removeObject(step.collision_id);
     if (!ok) {error = "collision object '" + step.collision_id + "' not found";}
@@ -1187,13 +1195,20 @@ void ManipulationServer::manageCollisionObject(
 {
   std::string err;
   const Eigen::Isometry3d pose = poseMsgToEigen(req->pose.pose);
+  const Eigen::Vector3d scale(req->mesh_scale.x, req->mesh_scale.y, req->mesh_scale.z);
+  const bool is_mesh = !req->mesh_resource.empty();
   switch (req->operation) {
     case ManageCollisionObject::Request::ADD:
-      res->success = collision_.addObject(req->id, req->primitive, pose, err);
+      res->success = is_mesh ?
+        collision_.addMeshObject(req->id, req->mesh_resource, scale, pose, err) :
+        collision_.addObject(req->id, req->primitive, pose, err);
       break;
     case ManageCollisionObject::Request::ATTACH:
-      res->success = collision_.addAttachedObject(
-        req->id, req->primitive, req->attach_link, pose, err);
+      res->success = is_mesh ?
+        collision_.addAttachedMeshObject(
+          req->id, req->mesh_resource, scale, req->attach_link, pose, err) :
+        collision_.addAttachedObject(
+          req->id, req->primitive, req->attach_link, pose, err);
       break;
     case ManageCollisionObject::Request::REMOVE:
     case ManageCollisionObject::Request::DETACH:
@@ -1243,6 +1258,20 @@ void ManipulationServer::publishMarkers()
     m.pose.orientation.y = q.y();
     m.pose.orientation.z = q.z();
     m.pose.orientation.w = q.w();
+
+    if (o.is_mesh) {
+      m.type = Marker::MESH_RESOURCE;
+      m.mesh_resource = o.mesh_resource;
+      m.scale.x = o.mesh_scale.x() > 0 ? o.mesh_scale.x() : 1.0;
+      m.scale.y = o.mesh_scale.y() > 0 ? o.mesh_scale.y() : 1.0;
+      m.scale.z = o.mesh_scale.z() > 0 ? o.mesh_scale.z() : 1.0;
+      m.color.r = 1.0f;
+      m.color.g = 0.5f;
+      m.color.b = 0.0f;
+      m.color.a = 0.6f;
+      arr.markers.push_back(m);
+      continue;
+    }
 
     const auto & d = o.primitive.dimensions;
     switch (o.primitive.type) {

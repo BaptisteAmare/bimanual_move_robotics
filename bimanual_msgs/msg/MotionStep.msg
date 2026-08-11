@@ -100,14 +100,22 @@ string follow_stop_topic           # std_msgs/Bool topic; a true msg stops it
 
 # --- TYPE_COLLISION --------------------------------------------------------
 # collision_op: add | remove | attach | detach | clear | enable | disable
-#   add     -> add a world object (collision_primitive at pose_target, in the
-#              planning root frame)
+#   add     -> add a world object (at pose_target, in the planning root frame)
 #   attach  -> attach the object to collision_attach_link (pose_target in that
 #              link's frame); it then rides with the link
 #   remove / detach -> remove the object by collision_id
 #   clear   -> remove every world/attached object
 #   enable / disable -> turn collision checking on / off globally
+#
+# The object geometry (add / attach) is EITHER a primitive OR a mesh:
+#   * collision_mesh empty  -> collision_primitive (box / sphere / cylinder).
+#   * collision_mesh set    -> a mesh resource (package:// or file://), loaded
+#     and decimated / sphere-reduced just like the robot's own meshes, so it
+#     stays cheap to collision-check. collision_mesh_scale scales it (each
+#     component <= 0 is treated as 1).
 string collision_op
 string collision_id
 shape_msgs/SolidPrimitive collision_primitive
 string collision_attach_link
+string collision_mesh
+geometry_msgs/Vector3 collision_mesh_scale

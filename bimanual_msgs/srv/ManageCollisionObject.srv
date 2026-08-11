@@ -10,9 +10,15 @@ uint8 operation
 # Unique identifier of the object (ignored for CLEAR).
 string id
 
-# Geometry (used for ADD / ATTACH when the object does not exist yet).
-# Supported types: BOX, SPHERE, CYLINDER (see shape_msgs/SolidPrimitive).
+# Geometry (used for ADD / ATTACH when the object does not exist yet). EITHER a
+# primitive OR a mesh:
+#   * mesh_resource empty -> primitive below (BOX, SPHERE or CYLINDER).
+#   * mesh_resource set   -> a mesh (package:// or file://), loaded and
+#     decimated / sphere-reduced like the robot's own meshes. mesh_scale scales
+#     it (each component <= 0 is treated as 1).
 shape_msgs/SolidPrimitive primitive
+string mesh_resource
+geometry_msgs/Vector3 mesh_scale
 
 # Object pose. header.frame_id selects the reference frame; an empty frame_id
 # defaults to the planning frame.

@@ -68,6 +68,18 @@ public:
     const std::string & id, const shape_msgs::msg::SolidPrimitive & primitive,
     const std::string & link, const Eigen::Isometry3d & pose_in_link,
     std::string & error);
+
+  // Mesh objects. The resource (package:// or file://) is loaded and, exactly
+  // like the robot's own meshes, decimated (mesh mode) or reduced to a sphere
+  // proxy (spheres mode) so it stays cheap to collision-check. `scale` scales
+  // the mesh (components <= 0 are treated as 1).
+  bool addMeshObject(
+    const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
+    const Eigen::Isometry3d & pose, std::string & error);
+  bool addAttachedMeshObject(
+    const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
+    const std::string & link, const Eigen::Isometry3d & pose_in_link, std::string & error);
+
   bool removeObject(const std::string & id);
   void clearObjects();
 
@@ -78,6 +90,9 @@ public:
     shape_msgs::msg::SolidPrimitive primitive;
     Eigen::Isometry3d pose;        // root frame, or link frame if attached
     std::string attached_link;     // empty when free in the world
+    bool is_mesh = false;          // true -> mesh_resource/mesh_scale describe it
+    std::string mesh_resource;
+    Eigen::Vector3d mesh_scale = Eigen::Vector3d::Ones();
   };
   std::vector<ObjectInfo> objects() const;
 
@@ -134,15 +149,30 @@ private:
   struct WorldObject
   {
     std::string id;
-    std::shared_ptr<fcl::CollisionObjectd> obj;
+    std::shared_ptr<fcl::CollisionObjectd> obj;   // FCL geom (mesh mode: BVH)
     Eigen::Isometry3d pose;          // in root frame (or link frame if attached)
     int attached_node = -1;          // -1 when free in the world
-    shape_msgs::msg::SolidPrimitive primitive;  // kept for visualization
+    shape_msgs::msg::SolidPrimitive primitive;  // primitive objects (also for viz)
     std::string attached_link;
+
+    // Mesh objects.
+    bool is_mesh = false;
+    std::string mesh_resource;
+    Eigen::Vector3d mesh_scale = Eigen::Vector3d::Ones();
+    // Sphere proxy of the mesh (object frame), used in spheres mode. (center, radius)
+    std::vector<std::pair<Eigen::Vector3d, double>> mesh_spheres;
+    Eigen::Vector3d mesh_bound_center = Eigen::Vector3d::Zero();  // broad-phase
+    double mesh_bound_radius = 0.0;
   };
 
   std::shared_ptr<fcl::CollisionGeometryd> makeGeometry(
     const shape_msgs::msg::SolidPrimitive & primitive) const;
+
+  // Load + reduce a mesh resource into `wo` (BVH geom in mesh mode, sphere
+  // proxy in spheres mode). Scale components <= 0 default to 1.
+  bool buildMeshObject(
+    const std::string & resource, const Eigen::Vector3d & scale,
+    WorldObject & wo, std::string & error) const;
 
   void computeLinkTransforms(
     const std::map<std::string, double> & joint_values,

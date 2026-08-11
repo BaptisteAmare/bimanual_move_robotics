@@ -212,6 +212,16 @@ MotionStep parseStep(const YAML::Node & s)
     step.collision_op = s["op"].as<std::string>("");
     step.collision_id = s["id"].as<std::string>("");
     step.collision_attach_link = s["attach_link"].as<std::string>("");
+    step.collision_mesh = s["mesh"].as<std::string>("");
+    auto scale = asDoubleList(s["scale"]);  // optional [sx, sy, sz]
+    if (scale.size() == 3) {
+      step.collision_mesh_scale.x = scale[0];
+      step.collision_mesh_scale.y = scale[1];
+      step.collision_mesh_scale.z = scale[2];
+    } else if (scale.size() == 1) {
+      step.collision_mesh_scale.x = step.collision_mesh_scale.y =
+        step.collision_mesh_scale.z = scale[0];
+    }
     const YAML::Node prim = s["primitive"];
     if (prim) {
       const std::string t = prim["type"].as<std::string>("box");

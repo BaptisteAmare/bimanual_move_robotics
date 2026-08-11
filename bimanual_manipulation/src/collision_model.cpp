@@ -158,6 +158,52 @@ std::vector<Eigen::Vector3d> loadMeshVertices(
   return out;
 }
 
+// Cluster mesh vertices on a `voxel` grid -> one bounding sphere per occupied
+// cell (center = cell centroid, radius = farthest member, floored at voxel/4).
+// This is the same reduction used for the robot's own mesh links, so a mesh
+// collision object is just as cheap to check in spheres mode.
+std::vector<std::pair<Eigen::Vector3d, double>> verticesToSpheres(
+  const std::vector<Eigen::Vector3d> & verts, double voxel)
+{
+  std::vector<std::pair<Eigen::Vector3d, double>> out;
+  if (verts.empty() || voxel <= 0.0) {return out;}
+  const double inv = 1.0 / voxel;
+  std::map<std::tuple<int, int, int>, int> cell;
+  std::vector<Eigen::Vector3d> sum;
+  std::vector<int> cnt;
+  std::vector<int> vcell(verts.size());
+  for (size_t i = 0; i < verts.size(); ++i) {
+    const auto key = std::make_tuple(
+      static_cast<int>(std::floor(verts[i].x() * inv)),
+      static_cast<int>(std::floor(verts[i].y() * inv)),
+      static_cast<int>(std::floor(verts[i].z() * inv)));
+    auto it = cell.find(key);
+    int idx;
+    if (it == cell.end()) {
+      idx = static_cast<int>(sum.size());
+      cell.emplace(key, idx);
+      sum.push_back(verts[i]);
+      cnt.push_back(1);
+    } else {
+      idx = it->second;
+      sum[idx] += verts[i];
+      ++cnt[idx];
+    }
+    vcell[i] = idx;
+  }
+  std::vector<Eigen::Vector3d> cen(sum.size());
+  for (size_t k = 0; k < sum.size(); ++k) {cen[k] = sum[k] / cnt[k];}
+  std::vector<double> maxd(sum.size(), 0.0);
+  for (size_t i = 0; i < verts.size(); ++i) {
+    maxd[vcell[i]] = std::max(maxd[vcell[i]], (verts[i] - cen[vcell[i]]).norm());
+  }
+  out.reserve(cen.size());
+  for (size_t k = 0; k < cen.size(); ++k) {
+    out.emplace_back(cen[k], std::max(maxd[k], voxel * 0.25));
+  }
+  return out;
+}
+
 }  // namespace
 
 std::shared_ptr<fcl::CollisionGeometryd> CollisionModel::makeGeometry(
@@ -546,41 +592,8 @@ void CollisionModel::appendSpheresForGeometry(
       ++meshes_total_;
       const auto verts = loadMeshVertices(m->filename, m->scale);
       if (verts.empty()) {++meshes_failed_; break;}
-
-      // Cluster vertices on a voxel grid -> one sphere per occupied cell.
-      const double inv = 1.0 / voxel;
-      std::map<std::tuple<int, int, int>, int> cell;
-      std::vector<Eigen::Vector3d> sum;
-      std::vector<int> cnt;
-      std::vector<int> vcell(verts.size());
-      for (size_t i = 0; i < verts.size(); ++i) {
-        const auto key = std::make_tuple(
-          static_cast<int>(std::floor(verts[i].x() * inv)),
-          static_cast<int>(std::floor(verts[i].y() * inv)),
-          static_cast<int>(std::floor(verts[i].z() * inv)));
-        auto it = cell.find(key);
-        int idx;
-        if (it == cell.end()) {
-          idx = static_cast<int>(sum.size());
-          cell.emplace(key, idx);
-          sum.push_back(verts[i]);
-          cnt.push_back(1);
-        } else {
-          idx = it->second;
-          sum[idx] += verts[i];
-          ++cnt[idx];
-        }
-        vcell[i] = idx;
-      }
-      std::vector<Eigen::Vector3d> cen(sum.size());
-      for (size_t k = 0; k < sum.size(); ++k) {cen[k] = sum[k] / cnt[k];}
-      std::vector<double> maxd(sum.size(), 0.0);
-      for (size_t i = 0; i < verts.size(); ++i) {
-        maxd[vcell[i]] = std::max(maxd[vcell[i]], (verts[i] - cen[vcell[i]]).norm());
-      }
-      for (size_t k = 0; k < cen.size(); ++k) {
-        add(cen[k], std::max(maxd[k], voxel * 0.25));
-      }
+      // One bounding sphere per occupied voxel cell (see verticesToSpheres).
+      for (const auto & cs : verticesToSpheres(verts, voxel)) {add(cs.first, cs.second);}
       break;
     }
     default:
@@ -825,11 +838,36 @@ bool CollisionModel::checkStateSpheres(
     }
   }
 
-  // --- world objects: sphere vs primitive ----------------------------------
+  // --- world objects: robot spheres vs object ------------------------------
   std::lock_guard<std::mutex> lock(world_mutex_);
   for (const auto & wo : world_) {
     const Eigen::Isometry3d obj_tf =
       (wo.attached_node >= 0) ? Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose;
+
+    if (wo.is_mesh) {
+      // Sphere proxy of the mesh, in world frame, plus a bounding sphere.
+      std::vector<Eigen::Vector3d> ocs(wo.mesh_spheres.size());
+      for (size_t k = 0; k < wo.mesh_spheres.size(); ++k) {
+        ocs[k] = obj_tf * wo.mesh_spheres[k].first;
+      }
+      const Eigen::Vector3d bc = obj_tf * wo.mesh_bound_center;
+      for (size_t i = 0; i < spheres_.size(); ++i) {
+        const int sn = spheres_[i].node;
+        if (active_joints && !active[sn]) {continue;}
+        if (wo.attached_node >= 0) {
+          if (sn == wo.attached_node || nodes_[sn].parent == wo.attached_node ||
+            nodes_[wo.attached_node].parent == sn) {continue;}
+        }
+        if ((centers[i] - bc).norm() >
+          spheres_[i].radius + wo.mesh_bound_radius + margin) {continue;}   // broad-phase
+        for (size_t k = 0; k < ocs.size(); ++k) {
+          if ((centers[i] - ocs[k]).norm() <
+            spheres_[i].radius + wo.mesh_spheres[k].second + margin) {return false;}
+        }
+      }
+      continue;
+    }
+
     const Eigen::Isometry3d obj_inv = obj_tf.inverse();
     for (size_t i = 0; i < spheres_.size(); ++i) {
       const int sn = spheres_[i].node;
@@ -901,9 +939,26 @@ std::vector<std::string> CollisionModel::describeCollisions(
     }
     std::lock_guard<std::mutex> lock(world_mutex_);
     for (const auto & wo : world_) {
-      const Eigen::Isometry3d obj_inv =
-        ((wo.attached_node >= 0) ?
-        Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose).inverse();
+      const Eigen::Isometry3d obj_tf =
+        (wo.attached_node >= 0) ? Eigen::Isometry3d(tf[wo.attached_node] * wo.pose) : wo.pose;
+      if (wo.is_mesh) {
+        std::vector<Eigen::Vector3d> ocs(wo.mesh_spheres.size());
+        for (size_t k = 0; k < wo.mesh_spheres.size(); ++k) {ocs[k] = obj_tf * wo.mesh_spheres[k].first;}
+        for (size_t i = 0; i < spheres_.size(); ++i) {
+          if (active_joints && !active[spheres_[i].node]) {continue;}
+          bool hit = false;
+          for (size_t k = 0; k < ocs.size() && !hit; ++k) {
+            hit = (centers[i] - ocs[k]).norm() <
+              spheres_[i].radius + wo.mesh_spheres[k].second + margin;
+          }
+          if (hit) {
+            out.push_back("object '" + wo.id + "' (mesh) <-> " + nodes_[spheres_[i].node].name);
+            if (out.size() >= kMax) {return out;}
+          }
+        }
+        continue;
+      }
+      const Eigen::Isometry3d obj_inv = obj_tf.inverse();
       for (size_t i = 0; i < spheres_.size(); ++i) {
         if (active_joints && !active[spheres_[i].node]) {continue;}
         if (pointToPrimitive(obj_inv * centers[i], wo.primitive) < spheres_[i].radius + margin) {
@@ -1017,6 +1072,92 @@ bool CollisionModel::addAttachedObject(
   return true;
 }
 
+bool CollisionModel::buildMeshObject(
+  const std::string & resource, const Eigen::Vector3d & scale_in,
+  WorldObject & wo, std::string & error) const
+{
+  urdf::Vector3 scale;
+  scale.x = scale_in.x() > 0.0 ? scale_in.x() : 1.0;
+  scale.y = scale_in.y() > 0.0 ? scale_in.y() : 1.0;
+  scale.z = scale_in.z() > 0.0 ? scale_in.z() : 1.0;
+
+  wo.is_mesh = true;
+  wo.mesh_resource = resource;
+  wo.mesh_scale = Eigen::Vector3d(scale.x, scale.y, scale.z);
+
+  if (sphere_mode_) {
+    // Same reduction as the robot's mesh links: cluster vertices into spheres.
+    const auto verts = loadMeshVertices(resource, scale);
+    if (verts.empty()) {
+      error = "failed to load mesh '" + resource + "' (no usable vertices)";
+      return false;
+    }
+    wo.mesh_spheres = verticesToSpheres(verts, std::max(settings_.sphere_voxel, 1e-3));
+    if (wo.mesh_spheres.empty()) {
+      error = "mesh '" + resource + "' produced no spheres";
+      return false;
+    }
+    Eigen::Vector3d c = Eigen::Vector3d::Zero();
+    for (const auto & s : wo.mesh_spheres) {c += s.first;}
+    c /= static_cast<double>(wo.mesh_spheres.size());
+    double r = 0.0;
+    for (const auto & s : wo.mesh_spheres) {r = std::max(r, (s.first - c).norm() + s.second);}
+    wo.mesh_bound_center = c;
+    wo.mesh_bound_radius = r;
+  } else {
+    // Mesh mode: decimated BVH, exactly like the robot's collision meshes.
+    auto geom = loadMesh(resource, scale, settings_.mesh_decimation, nullptr);
+    if (!geom) {
+      error = "failed to load mesh '" + resource + "'";
+      return false;
+    }
+    wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, Eigen::Isometry3d::Identity());
+  }
+  return true;
+}
+
+bool CollisionModel::addMeshObject(
+  const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
+  const Eigen::Isometry3d & pose, std::string & error)
+{
+  WorldObject wo;
+  if (!buildMeshObject(resource, scale, wo, error)) {return false;}  // I/O outside lock
+  wo.id = id;
+  wo.pose = pose;
+  wo.attached_node = -1;
+  if (wo.obj) {wo.obj->setTransform(pose); wo.obj->computeAABB();}
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  world_.erase(
+    std::remove_if(world_.begin(), world_.end(),
+    [&](const WorldObject & o) {return o.id == id;}), world_.end());
+  world_.push_back(std::move(wo));
+  return true;
+}
+
+bool CollisionModel::addAttachedMeshObject(
+  const std::string & id, const std::string & resource, const Eigen::Vector3d & scale,
+  const std::string & link, const Eigen::Isometry3d & pose_in_link, std::string & error)
+{
+  auto it = node_index_.find(link);
+  if (it == node_index_.end()) {
+    error = "unknown attach link '" + link + "'";
+    return false;
+  }
+  WorldObject wo;
+  if (!buildMeshObject(resource, scale, wo, error)) {return false;}
+  wo.id = id;
+  wo.pose = pose_in_link;
+  wo.attached_node = it->second;
+  wo.attached_link = link;
+  if (wo.obj) {wo.obj->setTransform(pose_in_link); wo.obj->computeAABB();}
+  std::lock_guard<std::mutex> lock(world_mutex_);
+  world_.erase(
+    std::remove_if(world_.begin(), world_.end(),
+    [&](const WorldObject & o) {return o.id == id;}), world_.end());
+  world_.push_back(std::move(wo));
+  return true;
+}
+
 bool CollisionModel::removeObject(const std::string & id)
 {
   std::lock_guard<std::mutex> lock(world_mutex_);
@@ -1039,7 +1180,15 @@ std::vector<CollisionModel::ObjectInfo> CollisionModel::objects() const
   std::vector<ObjectInfo> out;
   out.reserve(world_.size());
   for (const auto & wo : world_) {
-    out.push_back({wo.id, wo.primitive, wo.pose, wo.attached_link});
+    ObjectInfo info;
+    info.id = wo.id;
+    info.primitive = wo.primitive;
+    info.pose = wo.pose;
+    info.attached_link = wo.attached_link;
+    info.is_mesh = wo.is_mesh;
+    info.mesh_resource = wo.mesh_resource;
+    info.mesh_scale = wo.mesh_scale;
+    out.push_back(std::move(info));
   }
   return out;
 }
