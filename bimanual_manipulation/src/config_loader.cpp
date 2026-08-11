@@ -222,7 +222,9 @@ MotionStep parseStep(const YAML::Node & s)
       } else if (t == "cylinder" || t == "3") {
         step.collision_primitive.type = shape_msgs::msg::SolidPrimitive::CYLINDER;
       }
-      step.collision_primitive.dimensions = asDoubleList(prim["dimensions"]);
+      for (double d : asDoubleList(prim["dimensions"])) {
+        step.collision_primitive.dimensions.push_back(d);
+      }
     }
     auto pos = asDoubleList(s["position"]);
     if (pos.size() == 3) {
