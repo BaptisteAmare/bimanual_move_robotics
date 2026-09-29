@@ -1153,6 +1153,9 @@ bool CollisionModel::buildMeshObject(
   wo.mesh_resource = resource;
   wo.mesh_scale = Eigen::Vector3d(scale.x, scale.y, scale.z);
 
+  Eigen::Vector3d bb_min = Eigen::Vector3d::Zero();
+  Eigen::Vector3d bb_max = Eigen::Vector3d::Zero();
+
   if (sphere_mode_) {
     // Same reduction as the robot's mesh links: cluster vertices into spheres.
     const auto verts = loadMeshVertices(resource, scale);
@@ -1172,6 +1175,9 @@ bool CollisionModel::buildMeshObject(
     for (const auto & s : wo.mesh_spheres) {r = std::max(r, (s.first - c).norm() + s.second);}
     wo.mesh_bound_center = c;
     wo.mesh_bound_radius = r;
+    bb_min = verts[0];
+    bb_max = verts[0];
+    for (const auto & v : verts) {bb_min = bb_min.cwiseMin(v); bb_max = bb_max.cwiseMax(v);}
   } else {
     // Mesh mode: decimated BVH, exactly like the robot's collision meshes.
     auto geom = loadMesh(resource, scale, settings_.mesh_decimation, nullptr);
@@ -1180,7 +1186,17 @@ bool CollisionModel::buildMeshObject(
       return false;
     }
     wo.obj = std::make_shared<fcl::CollisionObjectd>(geom, Eigen::Isometry3d::Identity());
+    bb_min = geom->aabb_local.min_;
+    bb_max = geom->aabb_local.max_;
   }
+
+  // Report the loaded (scaled) size — a wrong `scale` (e.g. a metre-unit mesh
+  // scaled by 0.001) makes the object millimetric: invisible and too small to
+  // collide with, which usually explains a mesh that "does nothing".
+  const Eigen::Vector3d dim = bb_max - bb_min;
+  std::fprintf(
+    stderr, "[collision_model] mesh '%s' loaded, size %.3f x %.3f x %.3f m (scale %.4g)\n",
+    resource.c_str(), dim.x(), dim.y(), dim.z(), scale.x);
   return true;
 }
 
