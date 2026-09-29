@@ -147,6 +147,7 @@ private:
 
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::TimerBase::SharedPtr marker_timer_;
+  size_t marker_count_ = 0;   // markers published last tick (for incremental delete)
 };
 
 }  // namespace bimanual_manipulation

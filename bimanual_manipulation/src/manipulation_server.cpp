@@ -1369,10 +1369,6 @@ void ManipulationServer::publishMarkers()
 
   visualization_msgs::msg::MarkerArray arr;
 
-  Marker del;
-  del.action = Marker::DELETEALL;
-  arr.markers.push_back(del);
-
   int id = 0;
   for (const auto & o : objects) {
     Marker m;
@@ -1442,6 +1438,19 @@ void ManipulationServer::publishMarkers()
     m.color.a = 0.6f;
     arr.markers.push_back(m);
   }
+
+  // Delete markers for objects that no longer exist (incremental — no
+  // DELETEALL, which RViz can apply to the ADDs in the same array too).
+  const size_t n = static_cast<size_t>(id);
+  for (size_t i = n; i < marker_count_; ++i) {
+    Marker del;
+    del.header.frame_id = collision_.rootFrame();
+    del.ns = "collision_objects";
+    del.id = static_cast<int>(i);
+    del.action = Marker::DELETE;
+    arr.markers.push_back(del);
+  }
+  marker_count_ = n;
 
   marker_pub_->publish(arr);
 }
