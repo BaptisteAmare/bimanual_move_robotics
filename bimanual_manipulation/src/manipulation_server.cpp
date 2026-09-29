@@ -1377,7 +1377,11 @@ void ManipulationServer::publishMarkers()
   for (const auto & o : objects) {
     Marker m;
     m.header.frame_id = o.attached_link.empty() ? collision_.rootFrame() : o.attached_link;
-    m.header.stamp = now();
+    // stamp 0 = "use the latest transform" and frame_locked = keep re-resolving
+    // it: without these RViz needs a transform at this exact time (our TF is
+    // only 2 Hz) and silently drops the marker, so nothing ever shows.
+    m.header.stamp = rclcpp::Time(0);
+    m.frame_locked = true;
     m.ns = "collision_objects";
     m.id = id++;
     m.action = Marker::ADD;
