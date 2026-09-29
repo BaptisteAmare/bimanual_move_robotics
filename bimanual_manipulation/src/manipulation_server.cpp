@@ -493,7 +493,11 @@ bool ManipulationServer::computeStepPath(
         subs[si].seed = qsub;
       }
       if (!valid(full)) {
-        error = "coordinated Cartesian: collision at fraction " + std::to_string(f);
+        const auto pairs = collision_.describeCollisions(full, &active);
+        std::string detail;
+        for (size_t i = 0; i < pairs.size() && i < 6; ++i) {detail += "\n    - " + pairs[i];}
+        error = "coordinated Cartesian: collision at fraction " + std::to_string(f) +
+          (detail.empty() ? "" : detail);
         return false;
       }
       path.push_back(std::move(full));
