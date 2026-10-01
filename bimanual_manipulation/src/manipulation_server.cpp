@@ -484,9 +484,16 @@ bool ManipulationServer::computeStepPath(
         Eigen::Isometry3d goal = subs[si].tip0;
         goal.translation() += deltas[si] * f;   // translation only, orientation kept
         std::vector<double> qsub;
-        if (!subs[si].kin->ik(goal, subs[si].seed, qsub, /*limit_jump=*/true)) {
+        // Continuous (limit_jump) solve first; if it stalls near a waypoint,
+        // retry with the one-shot solve (homotopy-backed) seeded from the same
+        // previous config — it reaches any target that is actually reachable,
+        // and only genuinely unreachable / out-of-limit goals still fail.
+        if (!subs[si].kin->ik(goal, subs[si].seed, qsub, /*limit_jump=*/true) &&
+          !subs[si].kin->ik(goal, subs[si].seed, qsub, /*limit_jump=*/false))
+        {
           error = "coordinated Cartesian: IK failed for subgroup '" +
-            g.cartesian_subgroups[si] + "' at fraction " + std::to_string(f);
+            g.cartesian_subgroups[si] + "' at fraction " + std::to_string(f) +
+            " (target likely out of reach / joint limit for this hand)";
           return false;
         }
         for (size_t k = 0; k < subs[si].idx.size(); ++k) {full[subs[si].idx[k]] = qsub[k];}
