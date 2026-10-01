@@ -161,6 +161,50 @@ bool GroupKinematics::ik(
     return true;
   }
 
+  // 1b) one-shot goto: a single LMA solve to a far goal often fails to
+  //     converge even when the goal is easily reachable by a short continuous
+  //     motion (e.g. a 10 cm relative offset). Walk the straight line from the
+  //     seed's current tip pose to the goal in small steps, warm-starting each
+  //     solve from the previous one — the same thing that makes a Cartesian
+  //     path succeed — then accept the final configuration. Collision (accept)
+  //     is only checked on that final config, matching one-shot semantics.
+  if (!limit_jump) {
+    Eigen::Isometry3d start_pose;
+    if (fkTip(seed, start_pose)) {
+      const Eigen::Vector3d p0 = start_pose.translation();
+      const Eigen::Vector3d p1 = goal.translation();
+      const Eigen::Quaterniond r0(start_pose.linear());
+      const Eigen::Quaterniond r1(goal.linear());
+      const int steps = 12;
+      std::vector<double> cur = seed;
+      bool chained = true;
+      for (int k = 1; k <= steps && chained; ++k) {
+        const double t = static_cast<double>(k) / steps;
+        Eigen::Isometry3d wp = Eigen::Isometry3d::Identity();
+        wp.translation() = (1.0 - t) * p0 + t * p1;
+        wp.linear() = r0.slerp(t, r1).toRotationMatrix();
+        const KDL::Frame wp_kdl = eigenToKdl(wp);
+        KDL::JntArray q_init(n), q_out(n);
+        for (unsigned int i = 0; i < n; ++i) {q_init(i) = cur[chain_to_group_[i]];}
+        if (solver->CartToJnt(q_init, wp_kdl, q_out) < 0) {chained = false; break;}
+        std::vector<double> nxt = cur;
+        for (unsigned int i = 0; i < n; ++i) {
+          const int gi = chain_to_group_[i];
+          if (q_out(i) < limits_[i].first - 1e-6 || q_out(i) > limits_[i].second + 1e-6) {
+            chained = false;
+            break;
+          }
+          nxt[gi] = q_out(i);
+        }
+        if (chained) {cur = nxt;}
+      }
+      if (chained && (!accept || accept(cur))) {
+        q = cur;
+        return true;
+      }
+    }
+  }
+
   // 2) random restarts to escape LMA local failures. For path following, keep
   //    them close to the seed; for a one-shot goto, explore the whole range.
   static thread_local std::mt19937 rng(2718281u);
